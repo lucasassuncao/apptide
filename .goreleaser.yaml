@@ -7,9 +7,7 @@ builds:
     id: apptide
     binary: apptide
     goos:
-      - linux
       - windows
-      - darwin
     goarch:
       - amd64
       - arm64
