@@ -17,7 +17,7 @@ a packages.yaml that can be used with 'apptide install' to replicate the setup.`
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runner.Export(runner.ExportOptions{
 			Output:      exportOutput,
-			GitHubToken: githubToken,
+			GitHubToken: resolveToken(githubToken),
 		})
 	},
 }

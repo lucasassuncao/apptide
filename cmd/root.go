@@ -28,6 +28,16 @@ func Execute() {
 	}
 }
 
+// resolveToken returns the explicit flag value when set, otherwise falls back
+// to $GITHUB_TOKEN. The env var is read at call time (not at flag parse time)
+// to avoid exposing the token value in --help output.
+func resolveToken(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	return os.Getenv("GITHUB_TOKEN")
+}
+
 // defaultConfigPath returns <binary-dir>/conf/packages.yaml.
 func defaultConfigPath() string {
 	exe, err := os.Executable()

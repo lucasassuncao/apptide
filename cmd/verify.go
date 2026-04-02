@@ -17,7 +17,7 @@ var verifyCmd = &cobra.Command{
 			Category:    category,
 			Source:      source,
 			InstallDir:  installDir,
-			GitHubToken: githubToken,
+			GitHubToken: resolveToken(githubToken),
 		})
 	},
 }

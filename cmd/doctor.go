@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/lucasassuncao/apptide/internal/output"
@@ -14,10 +15,11 @@ import (
 
 // managerInfo describes a supported package manager.
 type managerInfo struct {
-	name       string
-	binary     string
-	versionArg string
-	installHow string // human-readable install instructions
+	name           string
+	binary         string
+	versionArg     string
+	versionPattern string // optional regexp to extract version from output
+	installHow     string // human-readable install instructions
 }
 
 var managers = []managerInfo{
@@ -28,10 +30,11 @@ var managers = []managerInfo{
 		installHow: "winget ships with Windows 10/11. Update via Microsoft Store → App Installer.",
 	},
 	{
-		name:       "scoop",
-		binary:     "scoop",
-		versionArg: "--version",
-		installHow: "Run in PowerShell:  irm get.scoop.sh | iex",
+		name:           "scoop",
+		binary:         "scoop",
+		versionArg:     "--version",
+		versionPattern: `(\d+\.\d+\.\d+)`,
+		installHow:     "Run in PowerShell:  irm get.scoop.sh | iex",
 	},
 	{
 		name:       "chocolatey",
@@ -93,7 +96,7 @@ func runDoctorTable(binDir string) bool {
 			continue
 		}
 
-		version := getVersion(path, m.versionArg)
+		version := getVersion(path, m.versionArg, m.versionPattern)
 		fmt.Printf("  %s✓%s  %-14s %s%s%s  %s%s%s\n",
 			doctorGreen, doctorReset,
 			m.name,
@@ -119,12 +122,12 @@ func runDoctorTable(binDir string) bool {
 		fmt.Printf("       %s↳ run: apptide install --add-to-path%s\n", doctorGray, doctorReset)
 	}
 
-	// ── UPDATER_REPO ────────────────────────────────────────────────────────
+	// ── Self-update repo ────────────────────────────────────────────────────
 	fmt.Printf("\n%s%s[Self-update]%s\n", doctorBold, doctorYellow, doctorReset)
-	if repo := os.Getenv("UPDATER_REPO"); repo != "" {
-		fmt.Printf("  %s✓%s  UPDATER_REPO=%s\n", doctorGreen, doctorReset, repo)
+	if repo := DefaultRepo; repo != "" {
+		fmt.Printf("  %s✓%s  repo  %s\n", doctorGreen, doctorReset, repo)
 	} else {
-		fmt.Printf("  %s-%s  %sUPDATER_REPO not set%s — self-update requires --repo flag\n",
+		fmt.Printf("  %s-%s  %srepo not set%s — self-update requires --repo flag\n",
 			doctorGray, doctorReset, doctorGray, doctorReset)
 	}
 
@@ -168,7 +171,7 @@ func runDoctorJSON(binDir string) bool {
 		mgrs = append(mgrs, managerResult{
 			Name:      m.name,
 			Available: true,
-			Version:   getVersion(p, m.versionArg),
+			Version:   getVersion(p, m.versionArg, m.versionPattern),
 			Path:      p,
 		})
 	}
@@ -192,13 +195,21 @@ func runDoctorJSON(binDir string) bool {
 	return allOK
 }
 
-// getVersion runs `binary versionArg` and returns the first non-empty line of output.
-func getVersion(binary, arg string) string {
+// getVersion runs `binary versionArg` and returns the version string.
+// If pattern is non-empty, it extracts the first capture group from the output.
+// Otherwise, it returns the first non-empty line.
+func getVersion(binary, arg, pattern string) string {
 	out, err := exec.Command(binary, arg).Output()
 	if err != nil {
 		return "unknown"
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	text := strings.TrimSpace(string(out))
+	if pattern != "" {
+		if m := regexp.MustCompile(pattern).FindStringSubmatch(text); len(m) > 1 {
+			return m[1]
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			return line

@@ -1,11 +1,12 @@
 package cmd
 
 import (
-	"os"
-
 	"github.com/lucasassuncao/apptide/internal/updater"
 	"github.com/spf13/cobra"
 )
+
+// DefaultRepo is set at build time via ldflags.
+var DefaultRepo = ""
 
 var selfUpdateRepo string
 
@@ -19,15 +20,12 @@ The repository must be provided via --repo or the UPDATER_REPO environment varia
 	Example: `  apptide self-update --repo lucas/apptide
   UPDATER_REPO=lucas/apptide apptide self-update`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return updater.SelfUpdate(selfUpdateRepo, githubToken)
+		return updater.SelfUpdate(selfUpdateRepo, "")
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(selfUpdateCmd)
-	defaultRepo := os.Getenv("UPDATER_REPO")
-	selfUpdateCmd.Flags().StringVar(&selfUpdateRepo, "repo", defaultRepo,
-		`GitHub repository in "owner/repo" format (or set $UPDATER_REPO)`)
-	selfUpdateCmd.Flags().StringVar(&githubToken, "github-token", os.Getenv("GITHUB_TOKEN"),
-		"GitHub API token (defaults to $GITHUB_TOKEN)")
+	selfUpdateCmd.Flags().StringVar(&selfUpdateRepo, "repo", DefaultRepo,
+		`GitHub repository in "owner/repo" format`)
 }

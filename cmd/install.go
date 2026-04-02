@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"os"
-
 	"github.com/lucasassuncao/apptide/internal/runner"
 	"github.com/spf13/cobra"
 )
@@ -31,7 +29,7 @@ var installCmd = &cobra.Command{
 			DryRun:      dryRun,
 			InstallDir:  installDir,
 			AddToPath:   addToPath,
-			GitHubToken: githubToken,
+			GitHubToken: resolveToken(githubToken),
 		})
 		return r.Run()
 	},
@@ -44,5 +42,5 @@ func init() {
 	installCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "simulate actions without executing anything")
 	installCmd.Flags().StringVar(&installDir, "install-dir", "", `default dir for github/third_party binaries (default: %LOCALAPPDATA%\apptide\bin)`)
 	installCmd.Flags().BoolVar(&addToPath, "add-to-path", false, "add the install-dir to the user PATH if not already present")
-	installCmd.Flags().StringVar(&githubToken, "github-token", os.Getenv("GITHUB_TOKEN"), "GitHub API token (defaults to $GITHUB_TOKEN)")
+	installCmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub API token (or set $GITHUB_TOKEN)")
 }
