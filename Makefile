@@ -30,18 +30,12 @@ release: ## Create a release with goreleaser
 	@$(GORELEASER) release --timeout 360s
 
 tag: ## Create and push an annotated git tag (usage: make tag VERSION=v1.2.3)
-	@if [ -z "$(VERSION)" ]; then \
-		echo "Usage: make tag VERSION=v1.2.3"; exit 1; \
-	fi
-	@if ! echo "$(VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$'; then \
-		echo "error: VERSION must match vX.Y.Z (got: $(VERSION))"; exit 1; \
-	fi
-	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "error: working tree is not clean — commit or stash changes first"; exit 1; \
-	fi
-	@git tag -a $(VERSION) -m "Release $(VERSION)"
-	@git push origin $(VERSION)
-	@echo "Tagged and pushed $(VERSION)"
+ifndef VERSION
+	$(error Usage: make tag VERSION=v1.2.3)
+endif
+	git diff --exit-code --quiet
+	git tag -a $(VERSION) -m "Release $(VERSION)"
+	git push origin $(VERSION)
 
 install: ## Install binary globally
 	@go install
