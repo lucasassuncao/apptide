@@ -14,7 +14,7 @@ type Scoop struct{}
 
 func NewScoop() *Scoop { return &Scoop{} }
 
-func (s *Scoop) Name() string { return "scoop" }
+func (s *Scoop) Name() string { return SourceScoop }
 
 func (s *Scoop) IsAvailable() bool {
 	_, err := exec.LookPath("scoop")
@@ -39,6 +39,9 @@ func (s *Scoop) Uninstall(ctx context.Context, pkg config.Package) error {
 	if pkg.ID == "" {
 		return fmt.Errorf("missing 'id' for scoop package %q", pkg.Name)
 	}
+	if !s.isInstalled(pkg.ID) {
+		return ErrAlreadyInstalled
+	}
 	return runCtx(ctx, "scoop", "uninstall", pkg.ID)
 }
 
@@ -62,10 +65,7 @@ func (s *Scoop) Check(pkg config.Package) (bool, string) {
 	return false, ""
 }
 
-func (s *Scoop) isInstalled(id string) bool {
-	installed, _ := s.Check(config.Package{ID: id})
-	return installed
-}
+func (s *Scoop) isInstalled(id string) bool { return checkInstalled(s, id) }
 
 // runScoop runs a scoop command with captured output so we can:
 //  1. Strip the noisy self-update block ("Updating Scoop..." … "Scoop was updated successfully!")

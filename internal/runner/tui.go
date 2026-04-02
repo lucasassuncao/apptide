@@ -126,7 +126,7 @@ func (m model) View() string {
 		verb = lgYellow.Render("dry-run")
 	case action == "uninstall":
 		verb = lgCyan.Render("uninstalling...")
-	case src == "github" || src == "third_party":
+	case src == installer.SourceGitHub || src == installer.SourceThirdParty:
 		verb = lgCyan.Render("downloading...")
 	default:
 		verb = lgCyan.Render("installing...")
@@ -179,7 +179,7 @@ func doInstall(ctx context.Context, idx int, r tableRow, opts installer.Options,
 	}
 
 	src := strings.ToLower(r.pkg.Source)
-	isBinary := src == "github" || src == "third_party"
+	isBinary := src == installer.SourceGitHub || src == installer.SourceThirdParty
 
 	if err == nil {
 		// Run post_install hook — failure is a warning, not a hard failure.
@@ -327,15 +327,15 @@ func renderSummary(m model) string {
 
 func displayMethod(source string) string {
 	switch strings.ToLower(source) {
-	case "winget":
+	case installer.SourceWinget:
 		return "winget"
-	case "scoop":
+	case installer.SourceScoop:
 		return "scoop"
-	case "chocolatey":
+	case installer.SourceChocolatey:
 		return "choco"
-	case "github":
+	case installer.SourceGitHub:
 		return "github"
-	case "third_party":
+	case installer.SourceThirdParty:
 		return "third-party"
 	default:
 		return source

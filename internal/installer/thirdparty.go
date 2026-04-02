@@ -25,7 +25,7 @@ func NewThirdParty(installDir string) *ThirdParty {
 	}
 }
 
-func (t *ThirdParty) Name() string      { return "third_party" }
+func (t *ThirdParty) Name() string      { return SourceThirdParty }
 func (t *ThirdParty) IsAvailable() bool { return true }
 
 // Check looks for any file matching <name>.* in the install directory.

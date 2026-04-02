@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lucasassuncao/apptide/internal/config"
+	"github.com/lucasassuncao/apptide/internal/installer"
 	"github.com/spf13/cobra"
 )
 
@@ -40,8 +41,8 @@ type validationIssue struct {
 }
 
 var knownSources = map[string]bool{
-	"winget": true, "chocolatey": true, "choco": true,
-	"scoop": true, "github": true, "third_party": true,
+	installer.SourceWinget: true, installer.SourceChocolatey: true, "choco": true,
+	installer.SourceScoop: true, installer.SourceGitHub: true, installer.SourceThirdParty: true,
 }
 
 var knownActions = map[string]bool{
@@ -86,15 +87,15 @@ func runValidate(cfgPath string) error {
 			}
 
 			switch src {
-			case "winget", "chocolatey", "choco", "scoop":
+			case installer.SourceWinget, installer.SourceChocolatey, "choco", installer.SourceScoop:
 				if pkg.ID == "" {
 					issues = append(issues, validationIssue{cat, label, "id", "required for " + pkg.Source})
 				}
-			case "github":
+			case installer.SourceGitHub:
 				if pkg.Repo == "" {
 					issues = append(issues, validationIssue{cat, label, "repo", "required for github"})
 				}
-			case "third_party":
+			case installer.SourceThirdParty:
 				if pkg.URL == "" {
 					issues = append(issues, validationIssue{cat, label, "url", "required for third_party"})
 				}

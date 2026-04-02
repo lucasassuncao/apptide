@@ -44,7 +44,7 @@ func NewGitHub(token, installDir string) *GitHub {
 	}
 }
 
-func (g *GitHub) Name() string      { return "github" }
+func (g *GitHub) Name() string      { return SourceGitHub }
 func (g *GitHub) IsAvailable() bool { return true } // no external dependency
 
 // Check looks for the binary or directory that Install would have created.

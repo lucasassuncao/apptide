@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lucasassuncao/apptide/internal/config"
+	"github.com/lucasassuncao/apptide/internal/installer"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
@@ -78,7 +79,7 @@ func runInitWizard() error {
 	// ── Sources ───────────────────────────────────────────────────────────────
 	pterm.DefaultSection.Println("Package Sources")
 
-	allSources := []string{"winget", "scoop", "chocolatey", "github", "third_party"}
+	allSources := []string{installer.SourceWinget, installer.SourceScoop, installer.SourceChocolatey, installer.SourceGitHub, installer.SourceThirdParty}
 	selectedSources, err := pterm.DefaultInteractiveMultiselect.
 		WithOptions(allSources).
 		WithDefaultText("Which package managers do you use?").
@@ -242,7 +243,7 @@ func promptPackage(selectedSources, allSources []string) (*config.Package, error
 // promptSourceFields fills the source-specific fields of pkg interactively.
 func promptSourceFields(pkg *config.Package) error {
 	switch pkg.Source {
-	case "winget", "chocolatey", "scoop":
+	case installer.SourceWinget, installer.SourceChocolatey, installer.SourceScoop:
 		id, err := pterm.DefaultInteractiveTextInput.
 			WithDefaultText(fmt.Sprintf("ID (%s package identifier)", pkg.Source)).
 			Show()
@@ -251,7 +252,7 @@ func promptSourceFields(pkg *config.Package) error {
 		}
 		pkg.ID = strings.TrimSpace(id)
 
-	case "github":
+	case installer.SourceGitHub:
 		repo, err := pterm.DefaultInteractiveTextInput.
 			WithDefaultText("Repo (owner/repo)").
 			Show()
@@ -269,7 +270,7 @@ func promptSourceFields(pkg *config.Package) error {
 		}
 		pkg.Version = strings.TrimSpace(ver)
 
-	case "third_party":
+	case installer.SourceThirdParty:
 		u, err := pterm.DefaultInteractiveTextInput.
 			WithDefaultText("Download URL").
 			Show()
@@ -321,11 +322,11 @@ func selectOrCreateCategory(categories *[]string) (string, error) {
 // packageIDLine returns a short identifier line for the summary box.
 func packageIDLine(pkg config.Package) string {
 	switch pkg.Source {
-	case "winget", "chocolatey", "scoop":
+	case installer.SourceWinget, installer.SourceChocolatey, installer.SourceScoop:
 		if pkg.ID != "" {
 			return fmt.Sprintf("id: %s", pkg.ID)
 		}
-	case "github":
+	case installer.SourceGitHub:
 		if pkg.Repo != "" {
 			line := fmt.Sprintf("repo: %s", pkg.Repo)
 			if pkg.Version != "" {
@@ -333,7 +334,7 @@ func packageIDLine(pkg config.Package) string {
 			}
 			return line
 		}
-	case "third_party":
+	case installer.SourceThirdParty:
 		if pkg.URL != "" {
 			return fmt.Sprintf("url: %s", pkg.URL)
 		}
@@ -485,11 +486,11 @@ func writePackageEntry(w *os.File, pkg config.Package) {
 	fmt.Fprintf(w, "    source: %s\n", pkg.Source)
 
 	switch pkg.Source {
-	case "winget", "chocolatey", "scoop":
+	case installer.SourceWinget, installer.SourceChocolatey, installer.SourceScoop:
 		if pkg.ID != "" {
 			fmt.Fprintf(w, "    id: %q\n", pkg.ID)
 		}
-	case "github":
+	case installer.SourceGitHub:
 		if pkg.Repo != "" {
 			fmt.Fprintf(w, "    repo: %q\n", pkg.Repo)
 		}
@@ -498,7 +499,7 @@ func writePackageEntry(w *os.File, pkg config.Package) {
 			v = "latest"
 		}
 		fmt.Fprintf(w, "    version: %q\n", v)
-	case "third_party":
+	case installer.SourceThirdParty:
 		if pkg.URL != "" {
 			fmt.Fprintf(w, "    url: %q\n", pkg.URL)
 		}

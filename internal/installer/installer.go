@@ -13,6 +13,22 @@ import (
 // ErrAlreadyInstalled is returned when a package is already present and no_upgrade is set.
 var ErrAlreadyInstalled = errors.New("already installed")
 
+// Source identifiers for all supported package sources.
+const (
+	SourceWinget     = "winget"
+	SourceChocolatey = "chocolatey"
+	SourceScoop      = "scoop"
+	SourceGitHub     = "github"
+	SourceThirdParty = "third_party"
+)
+
+// checkInstalled reports whether the given package ID is currently installed
+// according to the provided Installer.
+func checkInstalled(i Installer, id string) bool {
+	installed, _ := i.Check(config.Package{ID: id})
+	return installed
+}
+
 // Installer handles install/uninstall for a specific package source.
 type Installer interface {
 	// Name returns the source identifier (e.g. "winget").
@@ -41,15 +57,15 @@ func Resolve(source string, opts Options) (Installer, error) {
 	}
 
 	switch source {
-	case "winget":
+	case SourceWinget:
 		return NewWinget(), nil
-	case "chocolatey", "choco":
+	case SourceChocolatey, "choco":
 		return NewChocolatey(), nil
-	case "scoop":
+	case SourceScoop:
 		return NewScoop(), nil
-	case "github":
+	case SourceGitHub:
 		return NewGitHub(opts.GitHubToken, dir), nil
-	case "third_party":
+	case SourceThirdParty:
 		return NewThirdParty(dir), nil
 	default:
 		return nil, fmt.Errorf("unknown source %q — valid: winget, chocolatey, scoop, github, third_party", source)

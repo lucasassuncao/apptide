@@ -14,7 +14,7 @@ type Chocolatey struct{}
 
 func NewChocolatey() *Chocolatey { return &Chocolatey{} }
 
-func (c *Chocolatey) Name() string { return "chocolatey" }
+func (c *Chocolatey) Name() string { return SourceChocolatey }
 
 func (c *Chocolatey) IsAvailable() bool {
 	_, err := exec.LookPath("choco")
@@ -50,6 +50,9 @@ func (c *Chocolatey) Uninstall(ctx context.Context, pkg config.Package) error {
 	if pkg.ID == "" {
 		return fmt.Errorf("missing 'id' for chocolatey package %q", pkg.Name)
 	}
+	if !c.isInstalled(pkg.ID) {
+		return ErrAlreadyInstalled
+	}
 	return runCtx(ctx, "choco", "uninstall", pkg.ID, "--yes")
 }
 
@@ -75,10 +78,7 @@ func (c *Chocolatey) Check(pkg config.Package) (bool, string) {
 	return false, ""
 }
 
-func (c *Chocolatey) isInstalled(id string) bool {
-	installed, _ := c.Check(config.Package{ID: id})
-	return installed
-}
+func (c *Chocolatey) isInstalled(id string) bool { return checkInstalled(c, id) }
 
 // runChoco runs a choco command with captured output so we can:
 //  1. Strip the non-administrator warning block.

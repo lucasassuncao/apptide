@@ -15,7 +15,7 @@ type Winget struct{}
 
 func NewWinget() *Winget { return &Winget{} }
 
-func (w *Winget) Name() string { return "winget" }
+func (w *Winget) Name() string { return SourceWinget }
 
 func (w *Winget) IsAvailable() bool {
 	_, err := exec.LookPath("winget")
@@ -73,10 +73,7 @@ func (w *Winget) Check(pkg config.Package) (bool, string) {
 	return false, ""
 }
 
-func (w *Winget) isInstalled(id string) bool {
-	installed, _ := w.Check(config.Package{ID: id})
-	return installed
-}
+func (w *Winget) isInstalled(id string) bool { return checkInstalled(w, id) }
 
 func (w *Winget) install(ctx context.Context, pkg config.Package) error {
 	args := []string{

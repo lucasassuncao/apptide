@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/lucasassuncao/apptide/internal/installer"
 )
 
 // ExportOptions configures the export command.
@@ -130,7 +132,7 @@ func exportWinget() ([]exportEntry, error) {
 		for _, pkg := range src.Packages {
 			result = append(result, exportEntry{
 				name:    pkg.PackageIdentifier,
-				source:  "winget",
+				source:  installer.SourceWinget,
 				id:      pkg.PackageIdentifier,
 				version: pkg.Version,
 			})
@@ -168,7 +170,7 @@ func exportScoop() ([]exportEntry, error) {
 	for _, app := range export.Apps {
 		result = append(result, exportEntry{
 			name:    app.Name,
-			source:  "scoop",
+			source:  installer.SourceScoop,
 			id:      app.Name,
 			version: app.Version,
 		})
@@ -203,7 +205,7 @@ func exportChocolatey() ([]exportEntry, error) {
 		}
 		result = append(result, exportEntry{
 			name:    id,
-			source:  "chocolatey",
+			source:  installer.SourceChocolatey,
 			id:      id,
 			version: version,
 		})
