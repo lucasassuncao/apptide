@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/lucasassuncao/apptide/internal/output"
 	"github.com/spf13/cobra"
@@ -27,8 +28,17 @@ func Execute() {
 	}
 }
 
+// defaultConfigPath returns <binary-dir>/conf/packages.yaml.
+func defaultConfigPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return filepath.Join("conf", "packages.yaml")
+	}
+	return filepath.Join(filepath.Dir(exe), "conf", "packages.yaml")
+}
+
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "packages.yaml", "path to packages config file")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath(), "path to packages config file")
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "output format: table, json")
 	// Propagate the flag value to the output helper before any command runs.
 	cobra.OnInitialize(func() { output.Set(outputFormat) })
