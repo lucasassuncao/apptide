@@ -40,6 +40,9 @@ func (w *Winget) Uninstall(ctx context.Context, pkg config.Package) error {
 	if pkg.ID == "" {
 		return fmt.Errorf("missing 'id' for winget package %q", pkg.Name)
 	}
+	if !w.isInstalled(pkg.ID) {
+		return ErrAlreadyInstalled
+	}
 	return runCtx(ctx, "winget", "uninstall",
 		"--id", pkg.ID, "--exact",
 		"--silent", "--accept-source-agreements",

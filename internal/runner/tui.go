@@ -124,6 +124,8 @@ func (m model) View() string {
 		verb = lgGray.Render("skip")
 	case m.dryRun:
 		verb = lgYellow.Render("dry-run")
+	case action == "uninstall":
+		verb = lgCyan.Render("uninstalling...")
 	case src == "github" || src == "third_party":
 		verb = lgCyan.Render("downloading...")
 	default:
@@ -193,7 +195,7 @@ func doInstall(ctx context.Context, idx int, r tableRow, opts installer.Options,
 		return pkgResult{index: idx, status: statusOK, installedBinary: isBinary}
 	}
 	if errors.Is(err, installer.ErrAlreadyInstalled) {
-		if r.pkg.NoUpgrade {
+		if action == "uninstall" || r.pkg.NoUpgrade {
 			return pkgResult{index: idx, status: statusAlreadyInstalled}
 		}
 		return pkgResult{index: idx, status: statusUpToDate}
@@ -281,7 +283,13 @@ func renderRow(r tableRow) string {
 func statusLabel(r tableRow) string {
 	switch r.status {
 	case statusOK:
-		s := lgGreen.Render("ok")
+		var s string
+		switch strings.ToLower(r.pkg.Action) {
+		case "uninstall":
+			s = lgGreen.Render("uninstalled")
+		default:
+			s = lgGreen.Render("installed")
+		}
 		if r.detail != "" {
 			s += "  " + lgYellow.Render(r.detail)
 		}
@@ -289,6 +297,9 @@ func statusLabel(r tableRow) string {
 	case statusUpToDate:
 		return lgGreen.Render("up to date")
 	case statusAlreadyInstalled:
+		if strings.ToLower(r.pkg.Action) == "uninstall" {
+			return lgGray.Render("already uninstalled")
+		}
 		return lgGray.Render("already installed")
 	case statusSkipped:
 		return lgGray.Render("skip")
