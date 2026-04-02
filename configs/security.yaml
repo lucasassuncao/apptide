@@ -1,0 +1,28 @@
+Security:
+  - name: "Bitdefender"
+    source: winget
+    id: "Bitdefender.Bitdefender"
+    description: "Antivirus and security software"
+    info_url: "https://www.bitdefender.com/"
+    action: install
+
+  - name: "Revo Uninstaller Pro"
+    source: winget
+    id: "RevoUninstaller.RevoUninstallerPro"
+    description: "Advanced uninstaller with leftover cleaner"
+    info_url: "https://www.revouninstaller.com/"
+    action: install
+
+  - name: "Intel Driver & Support Assistant"
+    source: winget
+    id: "Intel.IntelDriverAndSupportAssistant"
+    description: "Auto-detect and update Intel drivers"
+    info_url: "https://www.intel.com/content/www/us/en/support/detect.html"
+    action: install
+
+  - name: "Unchecky"
+    source: winget
+    id: "Unchecky.Unchecky"
+    description: "Auto-unchecks unwanted offers in installers"
+    info_url: "https://unchecky.com/"
+    action: skip

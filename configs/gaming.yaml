@@ -1,0 +1,14 @@
+Gaming:
+  - name: "Steam"
+    source: winget
+    id: "Valve.Steam"
+    description: "Digital distribution platform for games"
+    info_url: "https://store.steampowered.com/"
+    action: install
+
+  - name: "PCSX2"
+    source: winget
+    id: "PCSX2Team.PCSX2"
+    description: "PlayStation 2 emulator"
+    info_url: "https://pcsx2.net/"
+    action: skip

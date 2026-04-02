@@ -1,0 +1,14 @@
+AITools:
+  - name: "Crush"
+    source: winget
+    id: "charmbracelet.crush"
+    description: "AI coding agent for the terminal"
+    info_url: "https://github.com/charmbracelet/crush"
+    action: install
+
+  - name: "Upscayl"
+    source: winget
+    id: "Upscayl.Upscayl"
+    description: "Open-source AI image upscaler"
+    info_url: "https://upscayl.org/"
+    action: install

@@ -1,0 +1,28 @@
+Browsers:
+  - name: "Chrome"
+    source: winget
+    id: "Google.Chrome"
+    description: "Google Chrome web browser"
+    info_url: "https://www.google.com/chrome/"
+    action: install
+
+  - name: "Windows Terminal"
+    source: winget
+    id: "Microsoft.WindowsTerminal"
+    description: "Modern terminal application for Windows"
+    info_url: "https://github.com/microsoft/terminal"
+    action: skip
+
+  - name: "Twinkle Tray"
+    source: winget
+    id: "xanderfrangos.twinkletray"
+    description: "System-tray brightness manager for multiple monitors"
+    info_url: "https://twinkletray.com/"
+    action: install
+
+  - name: "App Installer"
+    source: winget
+    id: "Microsoft.AppInstaller"
+    description: "Windows Package Manager (winget) client"
+    info_url: "https://github.com/microsoft/winget-cli"
+    action: install

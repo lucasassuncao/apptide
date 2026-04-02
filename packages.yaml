@@ -1,0 +1,46 @@
+# apptide — unified package config
+#
+# Fields per package:
+#   name         : display name (required)
+#   source       : winget | chocolatey | scoop | github | third_party (required)
+#   action       : install | uninstall | skip  (default: install)
+#   description  : informational only
+#   info_url     : project homepage
+#
+# winget / chocolatey / scoop:
+#   id           : package identifier for the package manager
+#   version      : specific version or "latest" (default: latest)
+#   no_upgrade   : true → skip upgrade when already installed
+#   args         : extra CLI arguments
+#
+# github:
+#   repo         : "owner/repo"
+#   version      : release tag or "latest"
+#   asset_pattern: glob to force a specific asset (e.g. "*windows_amd64*.zip")
+#   run_installer: true → execute .exe/.msi instead of copying the binary
+#   install_dir  : override default binary dir
+#
+# third_party:
+#   url          : direct download URL
+#   run_installer: true → execute the downloaded installer
+#   args         : arguments passed to the installer
+#   install_dir  : override default binary dir
+#
+# Hooks:
+#   pre_install  : shell command run before the action — non-zero exit aborts install
+#   post_install : shell command run after success   — non-zero exit is a warning only
+
+import:
+  - ./configs/browsers.yaml
+  - ./configs/development.yaml
+  - ./configs/devops.yaml
+  - ./configs/cli-tools.yaml
+  - ./configs/file-managers.yaml
+  - ./configs/multimedia.yaml
+  - ./configs/file-transfer.yaml
+  - ./configs/productivity.yaml
+  - ./configs/system-monitoring.yaml
+  - ./configs/virtualization.yaml
+  - ./configs/security.yaml
+  - ./configs/gaming.yaml
+  - ./configs/ai-tools.yaml

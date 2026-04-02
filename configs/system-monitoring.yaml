@@ -1,0 +1,28 @@
+SystemMonitoring:
+  - name: "Sysinternals"
+    source: winget
+    id: "Microsoft.Sysinternals"
+    description: "System utilities for troubleshooting Windows"
+    info_url: "https://learn.microsoft.com/sysinternals/"
+    action: skip
+
+  - name: "GPU-Z"
+    source: winget
+    id: "TechPowerUp.GPU-Z"
+    description: "GPU information and monitoring"
+    info_url: "https://www.techpowerup.com/gpuz/"
+    action: skip
+
+  - name: "CPU-Z"
+    source: winget
+    id: "CPUID.CPU-Z"
+    description: "CPU information and monitoring"
+    info_url: "https://www.cpuid.com/softwares/cpu-z.html"
+    action: skip
+
+  - name: "bottom"
+    source: winget
+    id: "Clement.bottom"
+    description: "Graphical process/system monitor for the terminal"
+    info_url: "https://github.com/ClementTsang/bottom"
+    action: skip

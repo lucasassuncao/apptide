@@ -1,0 +1,28 @@
+DevOps:
+  - name: "kubectl"
+    source: winget
+    id: "Kubernetes.kubectl"
+    description: "Kubernetes command-line tool"
+    info_url: "https://kubernetes.io/docs/tasks/tools/"
+    action: skip
+
+  - name: "k9s"
+    source: winget
+    id: "Derailed.k9s"
+    description: "Kubernetes CLI cluster manager"
+    info_url: "https://k9scli.io/"
+    action: install
+
+  - name: "Terraform"
+    source: winget
+    id: "Hashicorp.Terraform"
+    description: "Infrastructure as Code tool"
+    info_url: "https://www.terraform.io/"
+    action: skip
+
+  - name: "AutoIt"
+    source: winget
+    id: "AutoIt.AutoIt"
+    description: "BASIC-like scripting for Windows GUI automation"
+    info_url: "https://www.autoitscript.com/"
+    action: install

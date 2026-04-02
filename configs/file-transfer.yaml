@@ -1,0 +1,21 @@
+FileTransfer:
+  - name: "LocalSend"
+    source: winget
+    id: "LocalSend.LocalSend"
+    description: "Share files over local network without internet"
+    info_url: "https://localsend.org/"
+    action: install
+
+  - name: "qBittorrent"
+    source: winget
+    id: "qBittorrent.qBittorrent"
+    description: "Free and reliable P2P BitTorrent client"
+    info_url: "https://www.qbittorrent.org/"
+    action: install
+
+  - name: "Feem"
+    source: winget
+    id: "FeePerfect.Feem.Beta"
+    description: "Wi-Fi direct file transfer between devices"
+    info_url: "https://feem.io/"
+    action: skip

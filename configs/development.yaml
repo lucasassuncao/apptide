@@ -1,0 +1,152 @@
+Development:
+  - name: "VS Code"
+    source: winget
+    id: "Microsoft.VisualStudioCode"
+    description: "The open-source AI code editor"
+    info_url: "https://code.visualstudio.com/"
+    action: install
+
+  - name: "Cursor"
+    source: winget
+    id: "Anysphere.Cursor"
+    description: "AI-powered code editor"
+    info_url: "https://www.cursor.com/"
+    action: install
+
+  - name: "GoLand"
+    source: winget
+    id: "JetBrains.GoLand"
+    description: "JetBrains IDE for Go"
+    info_url: "https://www.jetbrains.com/go/"
+    action: install
+
+  - name: "JetBrains Toolbox"
+    source: winget
+    id: "JetBrains.Toolbox"
+    description: "Manage JetBrains IDEs"
+    info_url: "https://www.jetbrains.com/toolbox-app/"
+    action: install
+
+  - name: "Git"
+    source: winget
+    id: "Git.Git"
+    description: "Distributed version control system"
+    info_url: "https://git-scm.com/"
+    action: install
+
+  - name: "GoLang"
+    source: winget
+    id: "GoLang.Go"
+    description: "Go programming language"
+    info_url: "https://go.dev/"
+    action: install
+
+  - name: "Python 3.13"
+    source: winget
+    id: "Python.Python.3.13"
+    description: "Python programming language"
+    info_url: "https://www.python.org/"
+    action: install
+
+  - name: "Python Launcher"
+    source: winget
+    id: "Python.Launcher"
+    description: "Python Launcher for Windows"
+    info_url: "https://www.python.org/"
+    action: install
+
+  - name: "Java JDK 24"
+    source: winget
+    id: "Oracle.JDK.24"
+    description: "Java Development Kit"
+    info_url: "https://www.oracle.com/java/technologies/downloads/"
+    action: install
+
+  - name: "Docker Desktop"
+    source: winget
+    id: "Docker.DockerDesktop"
+    description: "Easy-to-install Docker environment"
+    info_url: "https://www.docker.com/products/docker-desktop/"
+    action: install
+
+  - name: "OpenSSH"
+    source: winget
+    id: "Microsoft.OpenSSH.Preview"
+    description: "SSH connectivity tool"
+    info_url: "https://github.com/PowerShell/Win32-OpenSSH"
+    action: install
+
+  - name: "Lazygit (winget)"
+    source: winget
+    id: "JesseDuffield.lazygit"
+    description: "Simple terminal UI for git commands"
+    info_url: "https://github.com/jesseduffield/lazygit"
+    action: skip   # installed via github below
+
+  - name: "Postman"
+    source: winget
+    id: "Postman.Postman"
+    description: "API development environment"
+    info_url: "https://www.postman.com/"
+    action: skip
+
+  - name: "PowerShell"
+    source: winget
+    id: "Microsoft.Powershell"
+    description: "Cross-platform PowerShell"
+    info_url: "https://github.com/PowerShell/PowerShell"
+    action: skip
+
+  # ── GitHub releases ─────────────────────────
+
+  - name: "Curlie"
+    source: github
+    repo: "rs/curlie"
+    description: "Modern curl alternative with httpie-like UI"
+    version: "v1.8.2"
+    action: install
+
+  - name: "Dive"
+    source: github
+    repo: "wagoodman/dive"
+    description: "Explore Docker image layers"
+    version: latest
+    action: install
+
+  - name: "Lazygit"
+    source: github
+    repo: "jesseduffield/lazygit"
+    description: "Terminal UI for git"
+    version: "v0.40.2"
+    action: install
+
+  - name: "VHS"
+    source: github
+    repo: "charmbracelet/vhs"
+    description: "Write terminal GIFs as code"
+    version: latest
+    action: install
+
+  - name: "TTYD"
+    source: github
+    repo: "tsl0922/ttyd"
+    description: "Share your terminal over the web"
+    version: latest
+    run_installer: false
+    action: install
+
+  - name: "SpotDL"
+    source: github
+    repo: "spotDL/spotify-downloader"
+    description: "Download music from Spotify"
+    version: latest
+    run_installer: false
+    action: install
+
+  - name: "YT-DLP"
+    source: github
+    repo: "yt-dlp/yt-dlp"
+    description: "youtube-dl fork with additional features"
+    version: latest
+    run_installer: false
+    action: install
