@@ -9,6 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is set at build time via:
+//
+//	go build -ldflags "-X github.com/lucasassuncao/apptide/cmd.Version=v1.0.0"
+var Version = "dev"
+
 var (
 	configPath   string
 	outputFormat string
@@ -48,9 +53,9 @@ func defaultConfigPath() string {
 }
 
 func init() {
+	rootCmd.Version = Version
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath(), "path to packages config file")
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "output format: table, json")
 	// Propagate the flag value to the output helper before any command runs.
 	cobra.OnInitialize(func() { output.Set(outputFormat) })
-	rootCmd.AddCommand(newVersionCmd())
 }

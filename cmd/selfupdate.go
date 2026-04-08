@@ -14,13 +14,11 @@ var selfUpdateCmd = &cobra.Command{
 	Use:   "self-update",
 	Short: "Update apptide itself to the latest GitHub release",
 	Long: `Downloads the latest apptide release from GitHub and replaces the current binary.
-The old binary is kept as apptide.exe.old until the next run.
-
-The repository must be provided via --repo or the UPDATER_REPO environment variable.`,
-	Example: `  apptide self-update --repo lucas/apptide
-  UPDATER_REPO=lucas/apptide apptide self-update`,
+The old binary is kept as apptide.exe.old until the next run.`,
+	Example: `  apptide self-update
+  apptide self-update --repo lucasassuncao/apptide`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return updater.SelfUpdate(selfUpdateRepo, "")
+		return updater.SelfUpdate(selfUpdateRepo, "", Version)
 	},
 }
 

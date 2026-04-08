@@ -10,6 +10,7 @@ import "github.com/lucasassuncao/apptide/internal/installer"
 
 ## Index
 
+- [Constants](<#constants>)
 - [Variables](<#variables>)
 - [func DefaultInstallDir\(\) string](<#DefaultInstallDir>)
 - [type Chocolatey](<#Chocolatey>)
@@ -52,6 +53,20 @@ import "github.com/lucasassuncao/apptide/internal/installer"
   - [func \(w \*Winget\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#Winget.Uninstall>)
 
 
+## Constants
+
+<a name="SourceWinget"></a>Source identifiers for all supported package sources.
+
+```go
+const (
+    SourceWinget     = "winget"
+    SourceChocolatey = "chocolatey"
+    SourceScoop      = "scoop"
+    SourceGitHub     = "github"
+    SourceThirdParty = "third_party"
+)
+```
+
 ## Variables
 
 <a name="ErrAlreadyInstalled"></a>ErrAlreadyInstalled is returned when a package is already present and no\_upgrade is set.
@@ -61,7 +76,7 @@ var ErrAlreadyInstalled = errors.New("already installed")
 ```
 
 <a name="DefaultInstallDir"></a>
-## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L60>)
+## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L76>)
 
 ```go
 func DefaultInstallDir() string
@@ -88,7 +103,7 @@ func NewChocolatey() *Chocolatey
 
 
 <a name="Chocolatey.Check"></a>
-### func \(\*Chocolatey\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L56>)
+### func \(\*Chocolatey\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L59>)
 
 ```go
 func (c *Chocolatey) Check(pkg config.Package) (bool, string)
@@ -198,7 +213,7 @@ func (g *GitHub) Uninstall(ctx context.Context, pkg config.Package) error
 
 
 <a name="Installer"></a>
-## type [Installer](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L17-L28>)
+## type [Installer](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L33-L44>)
 
 Installer handles install/uninstall for a specific package source.
 
@@ -218,7 +233,7 @@ type Installer interface {
 ```
 
 <a name="Resolve"></a>
-### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L37>)
+### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L53>)
 
 ```go
 func Resolve(source string, opts Options) (Installer, error)
@@ -227,7 +242,7 @@ func Resolve(source string, opts Options) (Installer, error)
 Resolve returns the correct Installer for the given source name.
 
 <a name="Options"></a>
-## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L31-L34>)
+## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L47-L50>)
 
 Options configures source\-specific settings passed to Resolve.
 
@@ -257,7 +272,7 @@ func NewScoop() *Scoop
 
 
 <a name="Scoop.Check"></a>
-### func \(\*Scoop\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L45>)
+### func \(\*Scoop\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L48>)
 
 ```go
 func (s *Scoop) Check(pkg config.Package) (bool, string)
@@ -385,7 +400,7 @@ func NewWinget() *Winget
 
 
 <a name="Winget.Check"></a>
-### func \(\*Winget\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L49>)
+### func \(\*Winget\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L52>)
 
 ```go
 func (w *Winget) Check(pkg config.Package) (bool, string)
