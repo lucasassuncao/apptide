@@ -1,14 +1,10 @@
-# 🌊 AppTide
-
 <!-- markdownlint-disable MD033 -->
 <p align="center">
   <img src="docs/apptide.png" alt="AppTide logo" width="360">
 </p>
 <!-- markdownlint-enable MD033 -->
 
-![made with Go](https://img.shields.io/badge/made_with-Go-blue?logo=go) ![type CLI](https://img.shields.io/badge/type-CLI-green) ![platform Windows](https://img.shields.io/badge/platform-Windows-blue) ![license MIT](https://img.shields.io/badge/license-MIT-lightgrey)
-
-A unified package manager CLI for Windows that orchestrates installations, updates, and lifecycle management across multiple package sources with a single declarative configuration.
+🌊 AppTide is a unified package manager CLI for Windows that orchestrates installations, updates, and lifecycle management across multiple package sources with a single declarative configuration.
 
 ## Overview
 
