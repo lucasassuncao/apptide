@@ -10,9 +10,9 @@ import (
 )
 
 // Chocolatey installs packages via the Chocolatey package manager (choco).
-type Chocolatey struct{}
+type Chocolatey struct{ force bool }
 
-func NewChocolatey() *Chocolatey { return &Chocolatey{} }
+func NewChocolatey(force bool) *Chocolatey { return &Chocolatey{force: force} }
 
 func (c *Chocolatey) Name() string { return SourceChocolatey }
 
@@ -36,12 +36,18 @@ func (c *Chocolatey) Install(ctx context.Context, pkg config.Package) error {
 		if pkg.Version != "" && !strings.EqualFold(pkg.Version, "latest") {
 			args = append(args, "--version", pkg.Version)
 		}
+		if c.force {
+			args = append(args, "--force")
+		}
 		return runChoco(ctx, append(args, pkg.Args...)...)
 	}
 
 	args := []string{"install", pkg.ID, "--yes", "--no-progress"}
 	if pkg.Version != "" && !strings.EqualFold(pkg.Version, "latest") {
 		args = append(args, "--version", pkg.Version)
+	}
+	if c.force {
+		args = append(args, "--force")
 	}
 	return runChoco(ctx, append(args, pkg.Args...)...)
 }

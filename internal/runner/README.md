@@ -51,7 +51,7 @@ type ExportOptions struct {
 ```
 
 <a name="Options"></a>
-## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L28-L36>)
+## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L28-L37>)
 
 Options configures a Runner.
 
@@ -61,6 +61,7 @@ type Options struct {
     Category    string
     Source      string
     DryRun      bool
+    Force       bool
     InstallDir  string
     AddToPath   bool
     GitHubToken string
@@ -68,7 +69,7 @@ type Options struct {
 ```
 
 <a name="Runner"></a>
-## type [Runner](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L39-L41>)
+## type [Runner](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L40-L42>)
 
 Runner orchestrates package installation across categories and sources.
 
@@ -79,7 +80,7 @@ type Runner struct {
 ```
 
 <a name="New"></a>
-### func [New](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L43>)
+### func [New](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L44>)
 
 ```go
 func New(opts Options) *Runner
@@ -88,7 +89,7 @@ func New(opts Options) *Runner
 
 
 <a name="Runner.Run"></a>
-### func \(\*Runner\) [Run](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L46>)
+### func \(\*Runner\) [Run](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L47>)
 
 ```go
 func (r *Runner) Run() error

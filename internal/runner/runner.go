@@ -30,6 +30,7 @@ type Options struct {
 	Category    string
 	Source      string
 	DryRun      bool
+	Force       bool
 	InstallDir  string
 	AddToPath   bool
 	GitHubToken string
@@ -52,6 +53,7 @@ func (r *Runner) Run() error {
 	instOpts := installer.Options{
 		GitHubToken:       r.opts.GitHubToken,
 		DefaultInstallDir: r.opts.InstallDir,
+		Force:             r.opts.Force,
 	}
 
 	categories := cfg.Categories()

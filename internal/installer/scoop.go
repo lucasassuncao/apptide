@@ -10,9 +10,9 @@ import (
 )
 
 // Scoop installs packages via the Scoop package manager.
-type Scoop struct{}
+type Scoop struct{ force bool }
 
-func NewScoop() *Scoop { return &Scoop{} }
+func NewScoop(force bool) *Scoop { return &Scoop{force: force} }
 
 func (s *Scoop) Name() string { return SourceScoop }
 
@@ -29,6 +29,11 @@ func (s *Scoop) Install(ctx context.Context, pkg config.Package) error {
 	if s.isInstalled(pkg.ID) {
 		if pkg.NoUpgrade {
 			return ErrAlreadyInstalled
+		}
+		if s.force {
+			// Scoop has no --force flag; uninstall then reinstall.
+			_ = runCtx(ctx, "scoop", "uninstall", pkg.ID)
+			return runScoop(ctx, append([]string{"install", pkg.ID}, pkg.Args...)...)
 		}
 		return runScoop(ctx, append([]string{"update", pkg.ID}, pkg.Args...)...)
 	}

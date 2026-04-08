@@ -11,9 +11,9 @@ import (
 )
 
 // Winget installs packages via the Windows Package Manager (winget).
-type Winget struct{}
+type Winget struct{ force bool }
 
-func NewWinget() *Winget { return &Winget{} }
+func NewWinget(force bool) *Winget { return &Winget{force: force} }
 
 func (w *Winget) Name() string { return SourceWinget }
 
@@ -86,10 +86,18 @@ func (w *Winget) install(ctx context.Context, pkg config.Package) error {
 	if pkg.NoUpgrade {
 		args = append(args, "--no-upgrade")
 	}
+	if w.force {
+		args = append(args, "--force")
+	}
 	return runCtx(ctx, "winget", append(args, pkg.Args...)...)
 }
 
 func (w *Winget) upgrade(ctx context.Context, pkg config.Package) error {
+	// With --force, use install --force instead of upgrade so winget reinstalls
+	// even when already at the latest version.
+	if w.force {
+		return w.install(ctx, pkg)
+	}
 	args := []string{
 		"upgrade", "--id", pkg.ID, "--exact",
 		"--silent", "--accept-source-agreements", "--accept-package-agreements",

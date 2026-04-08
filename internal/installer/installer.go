@@ -47,6 +47,7 @@ type Installer interface {
 type Options struct {
 	GitHubToken       string
 	DefaultInstallDir string
+	Force             bool
 }
 
 // Resolve returns the correct Installer for the given source name.
@@ -58,11 +59,11 @@ func Resolve(source string, opts Options) (Installer, error) {
 
 	switch source {
 	case SourceWinget:
-		return NewWinget(), nil
+		return NewWinget(opts.Force), nil
 	case SourceChocolatey, "choco":
-		return NewChocolatey(), nil
+		return NewChocolatey(opts.Force), nil
 	case SourceScoop:
-		return NewScoop(), nil
+		return NewScoop(opts.Force), nil
 	case SourceGitHub:
 		return NewGitHub(opts.GitHubToken, dir), nil
 	case SourceThirdParty:

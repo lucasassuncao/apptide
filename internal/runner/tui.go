@@ -28,10 +28,12 @@ const (
 )
 
 type tableRow struct {
-	pkg      config.Package
-	category string
-	status   rowStatus
-	detail   string
+	pkg         config.Package
+	category    string
+	status      rowStatus
+	detail      string
+	newVersion  string
+	prevVersion string
 }
 
 // ── Bubbletea model ───────────────────────────────────────────────────────────
@@ -67,6 +69,8 @@ type pkgResult struct {
 	status          rowStatus
 	detail          string
 	installedBinary bool
+	newVersion      string
+	prevVersion     string
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -83,6 +87,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	m.rows[res.index].status = res.status
 	m.rows[res.index].detail = res.detail
+	m.rows[res.index].newVersion = res.newVersion
+	m.rows[res.index].prevVersion = res.prevVersion
 	m.nTotal++
 	switch res.status {
 	case statusOK, statusUpToDate, statusAlreadyInstalled:
@@ -162,6 +168,9 @@ func doInstall(ctx context.Context, idx int, r tableRow, opts installer.Options,
 		return pkgResult{index: idx, status: statusOK}
 	}
 
+	// Capture the version currently installed (may be empty if not detectable).
+	_, prevVersion := inst.Check(r.pkg)
+
 	// Run pre_install hook — failure aborts the package action.
 	if r.pkg.PreInstall != "" {
 		if herr := runHook(r.pkg.PreInstall); herr != nil {
@@ -182,6 +191,7 @@ func doInstall(ctx context.Context, idx int, r tableRow, opts installer.Options,
 	isBinary := src == installer.SourceGitHub || src == installer.SourceThirdParty
 
 	if err == nil {
+		_, newVersion := inst.Check(r.pkg)
 		// Run post_install hook — failure is a warning, not a hard failure.
 		if r.pkg.PostInstall != "" {
 			if herr := runHook(r.pkg.PostInstall); herr != nil {
@@ -189,16 +199,22 @@ func doInstall(ctx context.Context, idx int, r tableRow, opts installer.Options,
 					index: idx, status: statusOK,
 					detail:          "post-hook: " + herr.Error(),
 					installedBinary: isBinary,
+					newVersion:      newVersion,
+					prevVersion:     prevVersion,
 				}
 			}
 		}
-		return pkgResult{index: idx, status: statusOK, installedBinary: isBinary}
+		return pkgResult{
+			index: idx, status: statusOK, installedBinary: isBinary,
+			newVersion:  newVersion,
+			prevVersion: prevVersion,
+		}
 	}
 	if errors.Is(err, installer.ErrAlreadyInstalled) {
 		if action == "uninstall" || r.pkg.NoUpgrade {
-			return pkgResult{index: idx, status: statusAlreadyInstalled}
+			return pkgResult{index: idx, status: statusAlreadyInstalled, prevVersion: prevVersion}
 		}
-		return pkgResult{index: idx, status: statusUpToDate}
+		return pkgResult{index: idx, status: statusUpToDate, prevVersion: prevVersion}
 	}
 	if errors.Is(err, context.Canceled) {
 		return pkgResult{index: idx, status: statusFailed, detail: "cancelled"}
@@ -289,13 +305,23 @@ func statusLabel(r tableRow) string {
 			s = lgGreen.Render("uninstalled")
 		default:
 			s = lgGreen.Render("installed")
+			if r.newVersion != "" {
+				s += " " + lgGreen.Render(r.newVersion)
+				if r.prevVersion != "" && r.prevVersion != r.newVersion {
+					s += " " + lgGray.Render("(previous "+r.prevVersion+")")
+				}
+			}
 		}
 		if r.detail != "" {
 			s += "  " + lgYellow.Render(r.detail)
 		}
 		return s
 	case statusUpToDate:
-		return lgGreen.Render("up to date")
+		s := lgGreen.Render("up to date")
+		if r.prevVersion != "" {
+			s += " " + lgGray.Render("("+r.prevVersion+")")
+		}
+		return s
 	case statusAlreadyInstalled:
 		if strings.ToLower(r.pkg.Action) == "uninstall" {
 			return lgGray.Render("already uninstalled")

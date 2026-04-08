@@ -14,7 +14,7 @@ import "github.com/lucasassuncao/apptide/internal/installer"
 - [Variables](<#variables>)
 - [func DefaultInstallDir\(\) string](<#DefaultInstallDir>)
 - [type Chocolatey](<#Chocolatey>)
-  - [func NewChocolatey\(\) \*Chocolatey](<#NewChocolatey>)
+  - [func NewChocolatey\(force bool\) \*Chocolatey](<#NewChocolatey>)
   - [func \(c \*Chocolatey\) Check\(pkg config.Package\) \(bool, string\)](<#Chocolatey.Check>)
   - [func \(c \*Chocolatey\) Install\(ctx context.Context, pkg config.Package\) error](<#Chocolatey.Install>)
   - [func \(c \*Chocolatey\) IsAvailable\(\) bool](<#Chocolatey.IsAvailable>)
@@ -31,7 +31,7 @@ import "github.com/lucasassuncao/apptide/internal/installer"
   - [func Resolve\(source string, opts Options\) \(Installer, error\)](<#Resolve>)
 - [type Options](<#Options>)
 - [type Scoop](<#Scoop>)
-  - [func NewScoop\(\) \*Scoop](<#NewScoop>)
+  - [func NewScoop\(force bool\) \*Scoop](<#NewScoop>)
   - [func \(s \*Scoop\) Check\(pkg config.Package\) \(bool, string\)](<#Scoop.Check>)
   - [func \(s \*Scoop\) Install\(ctx context.Context, pkg config.Package\) error](<#Scoop.Install>)
   - [func \(s \*Scoop\) IsAvailable\(\) bool](<#Scoop.IsAvailable>)
@@ -45,7 +45,7 @@ import "github.com/lucasassuncao/apptide/internal/installer"
   - [func \(t \*ThirdParty\) Name\(\) string](<#ThirdParty.Name>)
   - [func \(t \*ThirdParty\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#ThirdParty.Uninstall>)
 - [type Winget](<#Winget>)
-  - [func NewWinget\(\) \*Winget](<#NewWinget>)
+  - [func NewWinget\(force bool\) \*Winget](<#NewWinget>)
   - [func \(w \*Winget\) Check\(pkg config.Package\) \(bool, string\)](<#Winget.Check>)
   - [func \(w \*Winget\) Install\(ctx context.Context, pkg config.Package\) error](<#Winget.Install>)
   - [func \(w \*Winget\) IsAvailable\(\) bool](<#Winget.IsAvailable>)
@@ -76,7 +76,7 @@ var ErrAlreadyInstalled = errors.New("already installed")
 ```
 
 <a name="DefaultInstallDir"></a>
-## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L76>)
+## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L77>)
 
 ```go
 func DefaultInstallDir() string
@@ -90,20 +90,22 @@ DefaultInstallDir returns the default binary directory used when no install\_dir
 Chocolatey installs packages via the Chocolatey package manager \(choco\).
 
 ```go
-type Chocolatey struct{}
+type Chocolatey struct {
+    // contains filtered or unexported fields
+}
 ```
 
 <a name="NewChocolatey"></a>
 ### func [NewChocolatey](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L15>)
 
 ```go
-func NewChocolatey() *Chocolatey
+func NewChocolatey(force bool) *Chocolatey
 ```
 
 
 
 <a name="Chocolatey.Check"></a>
-### func \(\*Chocolatey\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L59>)
+### func \(\*Chocolatey\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L65>)
 
 ```go
 func (c *Chocolatey) Check(pkg config.Package) (bool, string)
@@ -139,7 +141,7 @@ func (c *Chocolatey) Name() string
 
 
 <a name="Chocolatey.Uninstall"></a>
-### func \(\*Chocolatey\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L49>)
+### func \(\*Chocolatey\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L55>)
 
 ```go
 func (c *Chocolatey) Uninstall(ctx context.Context, pkg config.Package) error
@@ -233,7 +235,7 @@ type Installer interface {
 ```
 
 <a name="Resolve"></a>
-### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L53>)
+### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L54>)
 
 ```go
 func Resolve(source string, opts Options) (Installer, error)
@@ -242,7 +244,7 @@ func Resolve(source string, opts Options) (Installer, error)
 Resolve returns the correct Installer for the given source name.
 
 <a name="Options"></a>
-## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L47-L50>)
+## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L47-L51>)
 
 Options configures source\-specific settings passed to Resolve.
 
@@ -250,6 +252,7 @@ Options configures source\-specific settings passed to Resolve.
 type Options struct {
     GitHubToken       string
     DefaultInstallDir string
+    Force             bool
 }
 ```
 
@@ -259,20 +262,22 @@ type Options struct {
 Scoop installs packages via the Scoop package manager.
 
 ```go
-type Scoop struct{}
+type Scoop struct {
+    // contains filtered or unexported fields
+}
 ```
 
 <a name="NewScoop"></a>
 ### func [NewScoop](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L15>)
 
 ```go
-func NewScoop() *Scoop
+func NewScoop(force bool) *Scoop
 ```
 
 
 
 <a name="Scoop.Check"></a>
-### func \(\*Scoop\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L48>)
+### func \(\*Scoop\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L53>)
 
 ```go
 func (s *Scoop) Check(pkg config.Package) (bool, string)
@@ -308,7 +313,7 @@ func (s *Scoop) Name() string
 
 
 <a name="Scoop.Uninstall"></a>
-### func \(\*Scoop\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L38>)
+### func \(\*Scoop\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L43>)
 
 ```go
 func (s *Scoop) Uninstall(ctx context.Context, pkg config.Package) error
@@ -387,14 +392,16 @@ func (t *ThirdParty) Uninstall(ctx context.Context, pkg config.Package) error
 Winget installs packages via the Windows Package Manager \(winget\).
 
 ```go
-type Winget struct{}
+type Winget struct {
+    // contains filtered or unexported fields
+}
 ```
 
 <a name="NewWinget"></a>
 ### func [NewWinget](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L16>)
 
 ```go
-func NewWinget() *Winget
+func NewWinget(force bool) *Winget
 ```
 
 
