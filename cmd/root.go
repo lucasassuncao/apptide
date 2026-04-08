@@ -43,19 +43,19 @@ func resolveToken(flagValue string) string {
 	return os.Getenv("GITHUB_TOKEN")
 }
 
-// defaultConfigPath returns <binary-dir>/conf/packages.yaml.
-func defaultConfigPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return filepath.Join("conf", "packages.yaml")
-	}
-	return filepath.Join(filepath.Dir(exe), "conf", "packages.yaml")
-}
-
 func init() {
 	rootCmd.Version = Version
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath(), "path to packages config file")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", `Path to configuration file (e.g., /path/to/packages.yaml). Defaults to "./conf/packages.yaml"`)
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "output format: table, json")
 	// Propagate the flag value to the output helper before any command runs.
-	cobra.OnInitialize(func() { output.Set(outputFormat) })
+	// If no config was specified, fall back to <binary-dir>/conf/packages.yaml.
+	cobra.OnInitialize(func() {
+		output.Set(outputFormat)
+		if configPath == "" {
+			exe, err := os.Executable()
+			if err == nil {
+				configPath = filepath.Join(filepath.Dir(exe), "conf", "packages.yaml")
+			}
+		}
+	})
 }
