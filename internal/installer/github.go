@@ -53,7 +53,7 @@ func binaryBaseName(pkg config.Package) string {
 	if pkg.GitHub != nil && pkg.GitHub.BinaryName != "" {
 		return strings.ToLower(pkg.GitHub.BinaryName)
 	}
-	return binaryBaseName(pkg)
+	return strings.ToLower(pkg.Name)
 }
 
 // Check looks for the binary or directory that Install would have created.
