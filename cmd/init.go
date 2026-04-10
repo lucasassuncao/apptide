@@ -243,14 +243,32 @@ func promptPackage(selectedSources, allSources []string) (*config.Package, error
 // promptSourceFields fills the source-specific fields of pkg interactively.
 func promptSourceFields(pkg *config.Package) error {
 	switch pkg.Source {
-	case installer.SourceWinget, installer.SourceChocolatey, installer.SourceScoop:
+	case installer.SourceWinget:
 		id, err := pterm.DefaultInteractiveTextInput.
-			WithDefaultText(fmt.Sprintf("ID (%s package identifier)", pkg.Source)).
+			WithDefaultText("ID (winget package identifier)").
 			Show()
 		if err != nil {
 			return err
 		}
-		pkg.ID = strings.TrimSpace(id)
+		pkg.Winget = &config.WingetConfig{ID: strings.TrimSpace(id)}
+
+	case installer.SourceChocolatey:
+		id, err := pterm.DefaultInteractiveTextInput.
+			WithDefaultText("ID (chocolatey package identifier)").
+			Show()
+		if err != nil {
+			return err
+		}
+		pkg.Chocolatey = &config.ChocolateyConfig{ID: strings.TrimSpace(id)}
+
+	case installer.SourceScoop:
+		id, err := pterm.DefaultInteractiveTextInput.
+			WithDefaultText("ID (scoop package identifier)").
+			Show()
+		if err != nil {
+			return err
+		}
+		pkg.Scoop = &config.ScoopConfig{ID: strings.TrimSpace(id)}
 
 	case installer.SourceGitHub:
 		repo, err := pterm.DefaultInteractiveTextInput.
@@ -259,7 +277,6 @@ func promptSourceFields(pkg *config.Package) error {
 		if err != nil {
 			return err
 		}
-		pkg.Repo = strings.TrimSpace(repo)
 
 		ver, err := pterm.DefaultInteractiveTextInput.
 			WithDefaultText("Version").
@@ -268,6 +285,7 @@ func promptSourceFields(pkg *config.Package) error {
 		if err != nil {
 			return err
 		}
+		pkg.GitHub = &config.GitHubConfig{Repo: strings.TrimSpace(repo)}
 		pkg.Version = strings.TrimSpace(ver)
 
 	case installer.SourceThirdParty:
@@ -277,7 +295,7 @@ func promptSourceFields(pkg *config.Package) error {
 		if err != nil {
 			return err
 		}
-		pkg.URL = strings.TrimSpace(u)
+		pkg.ThirdParty = &config.ThirdPartyConfig{URL: strings.TrimSpace(u)}
 	}
 	return nil
 }
@@ -322,21 +340,29 @@ func selectOrCreateCategory(categories *[]string) (string, error) {
 // packageIDLine returns a short identifier line for the summary box.
 func packageIDLine(pkg config.Package) string {
 	switch pkg.Source {
-	case installer.SourceWinget, installer.SourceChocolatey, installer.SourceScoop:
-		if pkg.ID != "" {
-			return fmt.Sprintf("id: %s", pkg.ID)
+	case installer.SourceWinget:
+		if pkg.Winget != nil && pkg.Winget.ID != "" {
+			return fmt.Sprintf("id: %s", pkg.Winget.ID)
+		}
+	case installer.SourceChocolatey:
+		if pkg.Chocolatey != nil && pkg.Chocolatey.ID != "" {
+			return fmt.Sprintf("id: %s", pkg.Chocolatey.ID)
+		}
+	case installer.SourceScoop:
+		if pkg.Scoop != nil && pkg.Scoop.ID != "" {
+			return fmt.Sprintf("id: %s", pkg.Scoop.ID)
 		}
 	case installer.SourceGitHub:
-		if pkg.Repo != "" {
-			line := fmt.Sprintf("repo: %s", pkg.Repo)
+		if pkg.GitHub != nil && pkg.GitHub.Repo != "" {
+			line := fmt.Sprintf("repo: %s", pkg.GitHub.Repo)
 			if pkg.Version != "" {
 				line += fmt.Sprintf("  @%s", pkg.Version)
 			}
 			return line
 		}
 	case installer.SourceThirdParty:
-		if pkg.URL != "" {
-			return fmt.Sprintf("url: %s", pkg.URL)
+		if pkg.ThirdParty != nil && pkg.ThirdParty.URL != "" {
+			return fmt.Sprintf("url: %s", pkg.ThirdParty.URL)
 		}
 	}
 	return ""
@@ -420,16 +446,19 @@ func templateMinimal() string {
 #   no_upgrade    : true → skip upgrade when already installed
 #   post_install  : shell command to run after install (e.g. "git config ...")
 #
-#   winget / chocolatey / scoop → id: "Publisher.App"
-#   github                      → repo: "owner/repo"  version: "latest"
-#   third_party                 → url: "https://..."  run_installer: true
+#   winget:      id: "Publisher.App"
+#   chocolatey:  id: "package-name"
+#   scoop:       id: "package-name"
+#   github:      repo: "owner/repo"   binary_name: "gh"   (+ version: "latest")
+#   third_party: url: "https://..."
 
 MyApps:
   - name: "Example App"
     source: winget
-    id: "Publisher.AppId"
     description: "Replace this with your first package"
     action: install
+    winget:
+      id: "Publisher.AppId"
 `, time.Now().Format("2006-01-02"))
 }
 
@@ -440,41 +469,47 @@ func templateExample() string {
 Development:
   - name: "Git"
     source: winget
-    id: "Git.Git"
     description: "Distributed version control system"
     action: install
+    winget:
+      id: "Git.Git"
 
   - name: "Vim"
     source: scoop
-    id: "vim"
     description: "Highly configurable text editor"
     action: install
+    scoop:
+      id: "vim"
 
   - name: "Clink"
     source: chocolatey
-    id: "clink"
     description: "Powerful readline editing for cmd.exe"
     action: install
+    chocolatey:
+      id: "clink"
 
   - name: "Lazygit"
     source: github
-    repo: "jesseduffield/lazygit"
     version: latest
     description: "Terminal UI for git"
     action: install
+    github:
+      repo: "jesseduffield/lazygit"
 
 Utilities:
   - name: "7-Zip"
     source: winget
-    id: "7zip.7zip"
     description: "High-compression file archiver"
     action: install
+    winget:
+      id: "7zip.7zip"
 
   - name: "jq"
     source: winget
-    id: "jqlang.jq"
     description: "Command-line JSON processor"
     action: install
+    winget:
+      id: "jqlang.jq"
 `, time.Now().Format("2006-01-02"))
 }
 
@@ -485,30 +520,45 @@ func writePackageEntry(w *os.File, pkg config.Package) {
 	fmt.Fprintf(w, "  - name: %q\n", pkg.Name)
 	fmt.Fprintf(w, "    source: %s\n", pkg.Source)
 
-	switch pkg.Source {
-	case installer.SourceWinget, installer.SourceChocolatey, installer.SourceScoop:
-		if pkg.ID != "" {
-			fmt.Fprintf(w, "    id: %q\n", pkg.ID)
-		}
-	case installer.SourceGitHub:
-		if pkg.Repo != "" {
-			fmt.Fprintf(w, "    repo: %q\n", pkg.Repo)
-		}
-		v := pkg.Version
-		if v == "" {
-			v = "latest"
-		}
-		fmt.Fprintf(w, "    version: %q\n", v)
-	case installer.SourceThirdParty:
-		if pkg.URL != "" {
-			fmt.Fprintf(w, "    url: %q\n", pkg.URL)
-		}
-	}
-
 	if pkg.Description != "" {
 		fmt.Fprintf(w, "    description: %q\n", pkg.Description)
 	}
-	fmt.Fprintf(w, "    action: %s\n\n", pkg.Action)
+	fmt.Fprintf(w, "    action: %s\n", pkg.Action)
+
+	switch pkg.Source {
+	case installer.SourceWinget:
+		if pkg.Winget != nil && pkg.Winget.ID != "" {
+			fmt.Fprintf(w, "    winget:\n")
+			fmt.Fprintf(w, "      id: %q\n", pkg.Winget.ID)
+		}
+	case installer.SourceChocolatey:
+		if pkg.Chocolatey != nil && pkg.Chocolatey.ID != "" {
+			fmt.Fprintf(w, "    chocolatey:\n")
+			fmt.Fprintf(w, "      id: %q\n", pkg.Chocolatey.ID)
+		}
+	case installer.SourceScoop:
+		if pkg.Scoop != nil && pkg.Scoop.ID != "" {
+			fmt.Fprintf(w, "    scoop:\n")
+			fmt.Fprintf(w, "      id: %q\n", pkg.Scoop.ID)
+		}
+	case installer.SourceGitHub:
+		if pkg.GitHub != nil && pkg.GitHub.Repo != "" {
+			v := pkg.Version
+			if v == "" {
+				v = "latest"
+			}
+			fmt.Fprintf(w, "    version: %q\n", v)
+			fmt.Fprintf(w, "    github:\n")
+			fmt.Fprintf(w, "      repo: %q\n", pkg.GitHub.Repo)
+		}
+	case installer.SourceThirdParty:
+		if pkg.ThirdParty != nil && pkg.ThirdParty.URL != "" {
+			fmt.Fprintf(w, "    third_party:\n")
+			fmt.Fprintf(w, "      url: %q\n", pkg.ThirdParty.URL)
+		}
+	}
+
+	fmt.Fprintln(w)
 }
 
 func clearScreen() {

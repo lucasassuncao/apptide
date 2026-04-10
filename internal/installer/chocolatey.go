@@ -22,55 +22,62 @@ func (c *Chocolatey) IsAvailable() bool {
 }
 
 func (c *Chocolatey) Install(ctx context.Context, pkg config.Package) error {
-	if pkg.ID == "" {
-		return fmt.Errorf("missing 'id' for chocolatey package %q", pkg.Name)
+	if pkg.Chocolatey == nil || pkg.Chocolatey.ID == "" {
+		return fmt.Errorf("missing 'chocolatey.id' for package %q", pkg.Name)
 	}
 
-	installed := c.isInstalled(pkg.ID)
+	installed := c.isInstalled(pkg)
 
 	if installed {
 		if pkg.NoUpgrade {
 			return ErrAlreadyInstalled
 		}
-		args := []string{"upgrade", pkg.ID, "--yes", "--no-progress"}
+		args := []string{"upgrade", pkg.Chocolatey.ID, "--yes", "--no-progress"}
 		if pkg.Version != "" && !strings.EqualFold(pkg.Version, "latest") {
 			args = append(args, "--version", pkg.Version)
 		}
 		if c.force {
 			args = append(args, "--force")
 		}
-		return runChoco(ctx, append(args, pkg.Args...)...)
+		if pkg.Chocolatey.PackageParams != "" {
+			args = append(args, "--package-parameters", pkg.Chocolatey.PackageParams)
+		}
+		return runChoco(ctx, append(args, pkg.Chocolatey.Args...)...)
 	}
 
-	args := []string{"install", pkg.ID, "--yes", "--no-progress"}
+	args := []string{"install", pkg.Chocolatey.ID, "--yes", "--no-progress"}
 	if pkg.Version != "" && !strings.EqualFold(pkg.Version, "latest") {
 		args = append(args, "--version", pkg.Version)
 	}
 	if c.force {
 		args = append(args, "--force")
 	}
-	return runChoco(ctx, append(args, pkg.Args...)...)
+	if pkg.Chocolatey.PackageParams != "" {
+		args = append(args, "--package-parameters", pkg.Chocolatey.PackageParams)
+	}
+	return runChoco(ctx, append(args, pkg.Chocolatey.Args...)...)
 }
 
 func (c *Chocolatey) Uninstall(ctx context.Context, pkg config.Package) error {
-	if pkg.ID == "" {
-		return fmt.Errorf("missing 'id' for chocolatey package %q", pkg.Name)
+	if pkg.Chocolatey == nil || pkg.Chocolatey.ID == "" {
+		return fmt.Errorf("missing 'chocolatey.id' for package %q", pkg.Name)
 	}
-	if !c.isInstalled(pkg.ID) {
+	if !c.isInstalled(pkg) {
 		return ErrAlreadyInstalled
 	}
-	return runCtx(ctx, "choco", "uninstall", pkg.ID, "--yes")
+	return runCtx(ctx, "choco", "uninstall", pkg.Chocolatey.ID, "--yes")
 }
 
 func (c *Chocolatey) Check(pkg config.Package) (bool, string) {
-	if pkg.ID == "" {
+	if pkg.Chocolatey == nil || pkg.Chocolatey.ID == "" {
 		return false, ""
 	}
-	out, err := exec.Command("choco", "list", "--local-only", pkg.ID).CombinedOutput()
+	id := pkg.Chocolatey.ID
+	out, err := exec.Command("choco", "list", "--local-only", id).CombinedOutput()
 	if err != nil {
 		return false, ""
 	}
-	idLower := strings.ToLower(pkg.ID)
+	idLower := strings.ToLower(id)
 	for _, line := range strings.Split(string(out), "\n") {
 		if !strings.Contains(strings.ToLower(line), idLower) {
 			continue
@@ -84,7 +91,10 @@ func (c *Chocolatey) Check(pkg config.Package) (bool, string) {
 	return false, ""
 }
 
-func (c *Chocolatey) isInstalled(id string) bool { return checkInstalled(c, id) }
+func (c *Chocolatey) isInstalled(pkg config.Package) bool {
+	installed, _ := c.Check(pkg)
+	return installed
+}
 
 // runChoco runs a choco command with captured output so we can:
 //  1. Strip the non-administrator warning block.

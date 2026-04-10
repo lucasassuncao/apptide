@@ -56,58 +56,9 @@ func runValidate(cfgPath string) error {
 		return err
 	}
 
-	var issues []validationIssue
-
-	for _, cat := range cfg.Categories() {
-		for _, pkg := range cfg[cat] {
-			label := pkg.Name
-			if label == "" {
-				label = "(unnamed)"
-			}
-
-			if pkg.Name == "" {
-				issues = append(issues, validationIssue{cat, label, "name", "required"})
-			}
-
-			src := strings.ToLower(pkg.Source)
-			if pkg.Source == "" {
-				issues = append(issues, validationIssue{cat, label, "source", "required"})
-			} else if !knownSources[src] {
-				issues = append(issues, validationIssue{
-					cat, label, "source",
-					fmt.Sprintf("%q is not valid (winget, chocolatey, scoop, github, third_party)", pkg.Source),
-				})
-			}
-
-			if !knownActions[strings.ToLower(pkg.Action)] {
-				issues = append(issues, validationIssue{
-					cat, label, "action",
-					fmt.Sprintf("%q is not valid (install, uninstall, skip)", pkg.Action),
-				})
-			}
-
-			switch src {
-			case installer.SourceWinget, installer.SourceChocolatey, "choco", installer.SourceScoop:
-				if pkg.ID == "" {
-					issues = append(issues, validationIssue{cat, label, "id", "required for " + pkg.Source})
-				}
-			case installer.SourceGitHub:
-				if pkg.Repo == "" {
-					issues = append(issues, validationIssue{cat, label, "repo", "required for github"})
-				}
-			case installer.SourceThirdParty:
-				if pkg.URL == "" {
-					issues = append(issues, validationIssue{cat, label, "url", "required for third_party"})
-				}
-			}
-		}
-	}
-
 	categories := cfg.Categories()
-	total := 0
-	for _, cat := range categories {
-		total += len(cfg[cat])
-	}
+	total := countPackages(cfg, categories)
+	issues := collectIssues(cfg, categories)
 
 	if len(issues) == 0 {
 		fmt.Printf("%s✓%s  config valid — %d package(s) in %d categor(ies)\n",
@@ -115,6 +66,102 @@ func runValidate(cfgPath string) error {
 		return nil
 	}
 
+	printIssues(issues, total, len(categories))
+	return fmt.Errorf("%d validation error(s)", len(issues))
+}
+
+func countPackages(cfg config.Config, categories []string) int {
+	total := 0
+	for _, cat := range categories {
+		total += len(cfg[cat])
+	}
+	return total
+}
+
+func collectIssues(cfg config.Config, categories []string) []validationIssue {
+	var issues []validationIssue
+	for _, cat := range categories {
+		for _, pkg := range cfg[cat] {
+			issues = append(issues, validatePackage(cat, pkg)...)
+		}
+	}
+	return issues
+}
+
+func validatePackage(cat string, pkg config.Package) []validationIssue {
+	var issues []validationIssue
+
+	label := pkg.Name
+	if label == "" {
+		label = "(unnamed)"
+	}
+
+	if pkg.Name == "" {
+		issues = append(issues, validationIssue{cat, label, "name", "required"})
+	}
+
+	issues = append(issues, validateSource(cat, label, pkg)...)
+	issues = append(issues, validateAction(cat, label, pkg)...)
+
+	return issues
+}
+
+func validateSource(cat, label string, pkg config.Package) []validationIssue {
+	var issues []validationIssue
+	src := strings.ToLower(pkg.Source)
+
+	switch {
+	case pkg.Source == "":
+		issues = append(issues, validationIssue{cat, label, "source", "required"})
+	case !knownSources[src]:
+		issues = append(issues, validationIssue{
+			cat, label, "source",
+			fmt.Sprintf("%q is not valid (winget, chocolatey, scoop, github, third_party)", pkg.Source),
+		})
+	default:
+		issues = append(issues, validateSourceBlock(cat, label, src, pkg)...)
+	}
+
+	return issues
+}
+
+func validateSourceBlock(cat, label, src string, pkg config.Package) []validationIssue {
+	switch src {
+	case installer.SourceWinget:
+		if pkg.Winget == nil || pkg.Winget.ID == "" {
+			return []validationIssue{{cat, label, "winget.id", "required for winget"}}
+		}
+	case installer.SourceChocolatey, "choco":
+		if pkg.Chocolatey == nil || pkg.Chocolatey.ID == "" {
+			return []validationIssue{{cat, label, "chocolatey.id", "required for chocolatey"}}
+		}
+	case installer.SourceScoop:
+		if pkg.Scoop == nil || pkg.Scoop.ID == "" {
+			return []validationIssue{{cat, label, "scoop.id", "required for scoop"}}
+		}
+	case installer.SourceGitHub:
+		if pkg.GitHub == nil || pkg.GitHub.Repo == "" {
+			return []validationIssue{{cat, label, "github.repo", "required for github"}}
+		}
+	case installer.SourceThirdParty:
+		if pkg.ThirdParty == nil || pkg.ThirdParty.URL == "" {
+			return []validationIssue{{cat, label, "third_party.url", "required for third_party"}}
+		}
+	}
+	return nil
+}
+
+func validateAction(cat, label string, pkg config.Package) []validationIssue {
+	if !knownActions[strings.ToLower(pkg.Action)] {
+		return []validationIssue{{
+			cat, label, "action",
+			fmt.Sprintf("%q is not valid (install, uninstall, skip)", pkg.Action),
+		}}
+	}
+	return nil
+}
+
+func printIssues(issues []validationIssue, total, numCategories int) {
 	fmt.Printf("\n  %s%-28s  %-20s  %-14s  %s%s\n",
 		vlBold, "Package", "Category", "Field", "Problem", vlReset)
 	sep := vlGray + strings.Repeat("─", 80) + vlReset
@@ -132,7 +179,5 @@ func runValidate(cfgPath string) error {
 
 	fmt.Println("\n" + sep)
 	fmt.Printf("%s%d error(s)%s in %d package(s) across %d categor(ies)\n",
-		vlRed, len(issues), vlReset, total, len(categories))
-
-	return fmt.Errorf("%d validation error(s)", len(issues))
+		vlRed, len(issues), vlReset, total, numCategories)
 }

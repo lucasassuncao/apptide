@@ -47,36 +47,45 @@ func NewGitHub(token, installDir string) *GitHub {
 func (g *GitHub) Name() string      { return SourceGitHub }
 func (g *GitHub) IsAvailable() bool { return true } // no external dependency
 
+// binaryBaseName returns the base name used for the installed binary or directory.
+// It uses github.binary_name when set, otherwise falls back to the lowercased package name.
+func binaryBaseName(pkg config.Package) string {
+	if pkg.GitHub != nil && pkg.GitHub.BinaryName != "" {
+		return strings.ToLower(pkg.GitHub.BinaryName)
+	}
+	return binaryBaseName(pkg)
+}
+
 // Check looks for the binary or directory that Install would have created.
 func (g *GitHub) Check(pkg config.Package) (bool, string) {
-	dir := pkg.InstallDir
-	if dir == "" {
-		dir = g.installDir
+	dir := g.installDir
+	if pkg.GitHub != nil && pkg.GitHub.InstallDir != "" {
+		dir = pkg.GitHub.InstallDir
 	}
 	// Single binary case: <name>.exe
-	if _, err := os.Stat(filepath.Join(dir, strings.ToLower(pkg.Name)+".exe")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, binaryBaseName(pkg)+".exe")); err == nil {
 		return true, ""
 	}
 	// Extracted directory case (extractAll)
-	if info, err := os.Stat(filepath.Join(dir, strings.ToLower(pkg.Name))); err == nil && info.IsDir() {
+	if info, err := os.Stat(filepath.Join(dir, binaryBaseName(pkg))); err == nil && info.IsDir() {
 		return true, ""
 	}
 	return false, ""
 }
 
 func (g *GitHub) Install(ctx context.Context, pkg config.Package) error {
-	if pkg.Repo == "" {
-		return fmt.Errorf("missing 'repo' for github package %q", pkg.Name)
+	if pkg.GitHub == nil || pkg.GitHub.Repo == "" {
+		return fmt.Errorf("missing 'github.repo' for package %q", pkg.Name)
 	}
 
-	release, err := g.fetchRelease(ctx, pkg.Repo, pkg.Version)
+	release, err := g.fetchRelease(ctx, pkg.GitHub.Repo, pkg.Version)
 	if err != nil {
 		return err
 	}
 
 	asset := selectAsset(release.Assets, pkg)
 	if asset == nil {
-		return fmt.Errorf("no suitable Windows asset found in %s @ %s", pkg.Repo, release.TagName)
+		return fmt.Errorf("no suitable Windows asset found in %s @ %s", pkg.GitHub.Repo, release.TagName)
 	}
 
 	tmp, err := g.downloadAsset(ctx, asset)
@@ -85,9 +94,9 @@ func (g *GitHub) Install(ctx context.Context, pkg config.Package) error {
 	}
 	defer os.Remove(tmp)
 
-	dir := pkg.InstallDir
-	if dir == "" {
-		dir = g.installDir
+	dir := g.installDir
+	if pkg.GitHub.InstallDir != "" {
+		dir = pkg.GitHub.InstallDir
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating install dir %q: %w", dir, err)
@@ -101,15 +110,40 @@ func (g *GitHub) Uninstall(ctx context.Context, pkg config.Package) error {
 }
 
 // fetchRelease returns the latest or a specific tagged release from GitHub API.
+// For versioned lookups it automatically retries with and without a "v" prefix
+// so that both "1.2.3" and "v1.2.3" resolve regardless of the repo's tag convention.
 func (g *GitHub) fetchRelease(ctx context.Context, repo, version string) (*ghRelease, error) {
-	var apiURL string
 	if version == "" || strings.EqualFold(version, "latest") {
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	} else {
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, version)
+		url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+		return g.fetchReleaseURL(ctx, url, "latest", repo)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	// Build the list of tags to try: exact first, then the v-toggled variant.
+	tags := []string{version}
+	if strings.HasPrefix(version, "v") {
+		tags = append(tags, version[1:]) // "v1.2.3" → also try "1.2.3"
+	} else {
+		tags = append(tags, "v"+version) // "1.2.3"  → also try "v1.2.3"
+	}
+
+	for i, tag := range tags {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, tag)
+		rel, err := g.fetchReleaseURL(ctx, url, tag, repo)
+		if err == nil {
+			return rel, nil
+		}
+		// Only retry on 404; propagate rate-limit and other errors immediately.
+		isNotFound := strings.Contains(err.Error(), "not found")
+		if !isNotFound || i == len(tags)-1 {
+			return nil, fmt.Errorf("release %q not found for %s (tried: %s)", version, repo, strings.Join(tags, ", "))
+		}
+	}
+	return nil, fmt.Errorf("release %q not found for %s", version, repo)
+}
+
+// fetchReleaseURL performs a single GitHub releases API request.
+func (g *GitHub) fetchReleaseURL(ctx context.Context, url, tag, repo string) (*ghRelease, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +163,7 @@ func (g *GitHub) fetchRelease(ctx context.Context, repo, version string) (*ghRel
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
-		return nil, fmt.Errorf("release %q not found for %s", version, repo)
+		return nil, fmt.Errorf("release %q not found for %s", tag, repo)
 	case http.StatusForbidden, http.StatusTooManyRequests:
 		return nil, fmt.Errorf("github api rate-limited (set GITHUB_TOKEN to increase limits)")
 	default:
@@ -181,6 +215,7 @@ func (g *GitHub) downloadAsset(ctx context.Context, asset *ghAsset) (string, err
 // installFile routes to the appropriate strategy based on the asset's extension.
 func (g *GitHub) installFile(ctx context.Context, src, assetName, dir string, pkg config.Package) error {
 	lower := strings.ToLower(assetName)
+	gh := pkg.GitHub // guaranteed non-nil by Install
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
 		return g.extractTarGz(src, dir, pkg)
@@ -189,17 +224,17 @@ func (g *GitHub) installFile(ctx context.Context, src, assetName, dir string, pk
 	case strings.HasSuffix(lower, ".zip"):
 		return g.extractZip(src, dir, pkg)
 	case strings.HasSuffix(lower, ".exe"):
-		if pkg.RunInstaller {
-			return runCtx(ctx, src, pkg.Args...)
+		if gh.RunInstaller {
+			return runCtx(ctx, src, gh.Args...)
 		}
-		dest := filepath.Join(dir, strings.ToLower(pkg.Name)+".exe")
+		dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
 		return copyFile(src, dest)
 	case strings.HasSuffix(lower, ".msi"):
-		if pkg.RunInstaller {
+		if gh.RunInstaller {
 			args := []string{"/i", src, "/quiet", "/norestart"}
-			return runCtx(ctx, "msiexec.exe", append(args, pkg.Args...)...)
+			return runCtx(ctx, "msiexec.exe", append(args, gh.Args...)...)
 		}
-		dest := filepath.Join(dir, strings.ToLower(pkg.Name)+".msi")
+		dest := filepath.Join(dir, binaryBaseName(pkg)+".msi")
 		return copyFile(src, dest)
 	default:
 		dest := filepath.Join(dir, assetName)
@@ -229,12 +264,12 @@ func (g *GitHub) extractZip(src, dir string, pkg config.Package) error {
 
 	if len(exes) == 0 {
 		// No .exe — extract everything into a sub-directory named after the package.
-		subDir := filepath.Join(dir, strings.ToLower(pkg.Name))
+		subDir := filepath.Join(dir, binaryBaseName(pkg))
 		return extractAll(r, subDir)
 	}
 
 	// Prefer the shallowest exe; break ties by name similarity with pkg.Name.
-	wantName := strings.ToLower(pkg.Name) + ".exe"
+	wantName := binaryBaseName(pkg) + ".exe"
 	sort.Slice(exes, func(i, j int) bool {
 		if exes[i].depth != exes[j].depth {
 			return exes[i].depth < exes[j].depth
@@ -251,7 +286,7 @@ func (g *GitHub) extractZip(src, dir string, pkg config.Package) error {
 	})
 
 	best := exes[0].f
-	dest := filepath.Join(dir, strings.ToLower(pkg.Name)+".exe")
+	dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
 
 	rc, err := best.Open()
 	if err != nil {
@@ -365,11 +400,11 @@ func (g *GitHub) extractTarGz(src, dir string, pkg config.Package) error {
 
 	if len(exes) == 0 {
 		// No .exe — extract everything into a sub-directory.
-		subDir := filepath.Join(dir, strings.ToLower(pkg.Name))
+		subDir := filepath.Join(dir, binaryBaseName(pkg))
 		return extractTarEntries(entries, subDir)
 	}
 
-	wantName := strings.ToLower(pkg.Name) + ".exe"
+	wantName := binaryBaseName(pkg) + ".exe"
 	sort.Slice(exes, func(i, j int) bool {
 		if exes[i].depth != exes[j].depth {
 			return exes[i].depth < exes[j].depth
@@ -386,7 +421,7 @@ func (g *GitHub) extractTarGz(src, dir string, pkg config.Package) error {
 	})
 
 	bestName := exes[0].header.Name
-	dest := filepath.Join(dir, strings.ToLower(pkg.Name)+".exe")
+	dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -480,11 +515,11 @@ func (g *GitHub) extract7z(ctx context.Context, src, dir string, pkg config.Pack
 
 	if len(exes) == 0 {
 		// No .exe — copy the whole extracted dir.
-		subDir := filepath.Join(dir, strings.ToLower(pkg.Name))
+		subDir := filepath.Join(dir, binaryBaseName(pkg))
 		return copyDir(tmp, subDir)
 	}
 
-	wantName := strings.ToLower(pkg.Name) + ".exe"
+	wantName := binaryBaseName(pkg) + ".exe"
 	sort.Slice(exes, func(i, j int) bool {
 		if exes[i].depth != exes[j].depth {
 			return exes[i].depth < exes[j].depth
@@ -503,7 +538,7 @@ func (g *GitHub) extract7z(ctx context.Context, src, dir string, pkg config.Pack
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	dest := filepath.Join(dir, strings.ToLower(pkg.Name)+".exe")
+	dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
 	return copyFile(exes[0].path, dest)
 }
 
@@ -537,9 +572,9 @@ func copyDir(src, dst string) error {
 // selectAsset picks the best release asset for Windows amd64.
 func selectAsset(assets []ghAsset, pkg config.Package) *ghAsset {
 	// User-supplied glob takes priority.
-	if pkg.AssetPattern != "" {
+	if pkg.GitHub != nil && pkg.GitHub.AssetPattern != "" {
 		for i := range assets {
-			if matched, _ := filepath.Match(pkg.AssetPattern, assets[i].Name); matched {
+			if matched, _ := filepath.Match(pkg.GitHub.AssetPattern, assets[i].Name); matched {
 				return &assets[i]
 			}
 		}

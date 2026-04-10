@@ -23,11 +23,11 @@ func (w *Winget) IsAvailable() bool {
 }
 
 func (w *Winget) Install(ctx context.Context, pkg config.Package) error {
-	if pkg.ID == "" {
-		return fmt.Errorf("missing 'id' for winget package %q", pkg.Name)
+	if pkg.Winget == nil || pkg.Winget.ID == "" {
+		return fmt.Errorf("missing 'winget.id' for package %q", pkg.Name)
 	}
 
-	if w.isInstalled(pkg.ID) {
+	if w.isInstalled(pkg) {
 		if pkg.NoUpgrade {
 			return ErrAlreadyInstalled
 		}
@@ -37,34 +37,35 @@ func (w *Winget) Install(ctx context.Context, pkg config.Package) error {
 }
 
 func (w *Winget) Uninstall(ctx context.Context, pkg config.Package) error {
-	if pkg.ID == "" {
-		return fmt.Errorf("missing 'id' for winget package %q", pkg.Name)
+	if pkg.Winget == nil || pkg.Winget.ID == "" {
+		return fmt.Errorf("missing 'winget.id' for package %q", pkg.Name)
 	}
-	if !w.isInstalled(pkg.ID) {
+	if !w.isInstalled(pkg) {
 		return ErrAlreadyInstalled
 	}
 	return runCtx(ctx, "winget", "uninstall",
-		"--id", pkg.ID, "--exact",
+		"--id", pkg.Winget.ID, "--exact",
 		"--silent", "--accept-source-agreements",
 	)
 }
 
 func (w *Winget) Check(pkg config.Package) (bool, string) {
-	if pkg.ID == "" {
+	if pkg.Winget == nil || pkg.Winget.ID == "" {
 		return false, ""
 	}
-	out, err := exec.Command("winget", "list", "--id", pkg.ID, "--exact").CombinedOutput()
+	id := pkg.Winget.ID
+	out, err := exec.Command("winget", "list", "--id", id, "--exact").CombinedOutput()
 	if err != nil {
 		return false, ""
 	}
-	idLower := strings.ToLower(pkg.ID)
+	idLower := strings.ToLower(id)
 	for _, line := range strings.Split(string(out), "\n") {
 		if !strings.Contains(strings.ToLower(line), idLower) {
 			continue
 		}
 		fields := strings.Fields(line)
 		for i, f := range fields {
-			if strings.EqualFold(f, pkg.ID) && i+1 < len(fields) {
+			if strings.EqualFold(f, id) && i+1 < len(fields) {
 				return true, fields[i+1]
 			}
 		}
@@ -73,11 +74,14 @@ func (w *Winget) Check(pkg config.Package) (bool, string) {
 	return false, ""
 }
 
-func (w *Winget) isInstalled(id string) bool { return checkInstalled(w, id) }
+func (w *Winget) isInstalled(pkg config.Package) bool {
+	installed, _ := w.Check(pkg)
+	return installed
+}
 
 func (w *Winget) install(ctx context.Context, pkg config.Package) error {
 	args := []string{
-		"install", "--id", pkg.ID, "--exact",
+		"install", "--id", pkg.Winget.ID, "--exact",
 		"--silent", "--accept-source-agreements", "--accept-package-agreements",
 	}
 	if pkg.Version != "" && !strings.EqualFold(pkg.Version, "latest") {
@@ -89,7 +93,13 @@ func (w *Winget) install(ctx context.Context, pkg config.Package) error {
 	if w.force {
 		args = append(args, "--force")
 	}
-	return runCtx(ctx, "winget", append(args, pkg.Args...)...)
+	if pkg.Winget.Scope != "" {
+		args = append(args, "--scope", pkg.Winget.Scope)
+	}
+	if pkg.Winget.Locale != "" {
+		args = append(args, "--locale", pkg.Winget.Locale)
+	}
+	return runCtx(ctx, "winget", append(args, pkg.Winget.Args...)...)
 }
 
 func (w *Winget) upgrade(ctx context.Context, pkg config.Package) error {
@@ -99,13 +109,19 @@ func (w *Winget) upgrade(ctx context.Context, pkg config.Package) error {
 		return w.install(ctx, pkg)
 	}
 	args := []string{
-		"upgrade", "--id", pkg.ID, "--exact",
+		"upgrade", "--id", pkg.Winget.ID, "--exact",
 		"--silent", "--accept-source-agreements", "--accept-package-agreements",
 	}
 	if pkg.Version != "" && !strings.EqualFold(pkg.Version, "latest") {
 		args = append(args, "--version", pkg.Version)
 	}
-	return runWingetUpgrade(ctx, append(args, pkg.Args...)...)
+	if pkg.Winget.Scope != "" {
+		args = append(args, "--scope", pkg.Winget.Scope)
+	}
+	if pkg.Winget.Locale != "" {
+		args = append(args, "--locale", pkg.Winget.Locale)
+	}
+	return runWingetUpgrade(ctx, append(args, pkg.Winget.Args...)...)
 }
 
 // wingetUpToDateCodes are winget exit codes that mean "already at latest version".

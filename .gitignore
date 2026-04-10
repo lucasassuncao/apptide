@@ -56,3 +56,4 @@ apptide.yaml
 .claude
 CLAUDE.md
 apptide/
+./packages.yaml

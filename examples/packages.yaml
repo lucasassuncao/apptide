@@ -1,0 +1,49 @@
+# apptide — unified package config
+#
+# Common fields (all sources):
+#   name         : display name (required)
+#   source       : winget | chocolatey | scoop | github | third_party (required)
+#   action       : install | uninstall | skip  (default: install)
+#   version      : specific version or "latest" (default: latest)
+#   description  : informational only
+#   info_url     : project homepage
+#   no_upgrade   : true → skip upgrade when already installed
+#   pre_install  : shell command run before the action — non-zero exit aborts install
+#   post_install : shell command run after success   — non-zero exit is a warning only
+#
+# Source-specific blocks:
+#
+#   winget:
+#     id           : package identifier (e.g. "Publisher.App")
+#     args         : extra CLI arguments
+#     scope        : machine | user
+#     locale       : installer locale (e.g. "pt-BR")
+#
+#   chocolatey:
+#     id             : package identifier (e.g. "googlechrome")
+#     args           : extra CLI arguments passed to choco
+#     package_params : parameters forwarded to the package script
+#
+#   scoop:
+#     id     : package identifier (e.g. "vim")
+#     args   : extra CLI arguments
+#     bucket : bucket that provides the package (e.g. "extras")
+#
+#   github:
+#     repo         : "owner/repo"
+#     asset_pattern: glob to force a specific asset (e.g. "*windows_amd64*.zip")
+#     run_installer: true → execute .exe/.msi instead of copying the binary
+#     install_dir  : override default binary dir
+#     args         : arguments passed to the installer (when run_installer: true)
+#     binary_name  : explicit binary name (e.g. "gh" for name: "GitHub CLI")
+#
+#   third_party:
+#     url          : direct download URL
+#     run_installer: true → execute the downloaded installer
+#     install_dir  : override default binary dir
+#     args         : arguments passed to the installer (when run_installer: true)
+#     checksum     : expected file checksum (e.g. "sha256:abc123...")
+
+import:
+  - ./configs/browsers.yaml
+  - ./configs/development.yaml

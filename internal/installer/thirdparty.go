@@ -2,7 +2,11 @@ package installer
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -30,9 +34,9 @@ func (t *ThirdParty) IsAvailable() bool { return true }
 
 // Check looks for any file matching <name>.* in the install directory.
 func (t *ThirdParty) Check(pkg config.Package) (bool, string) {
-	dir := pkg.InstallDir
-	if dir == "" {
-		dir = t.installDir
+	dir := t.installDir
+	if pkg.ThirdParty != nil && pkg.ThirdParty.InstallDir != "" {
+		dir = pkg.ThirdParty.InstallDir
 	}
 	matches, err := filepath.Glob(filepath.Join(dir, strings.ToLower(pkg.Name)+".*"))
 	if err != nil || len(matches) == 0 {
@@ -42,19 +46,26 @@ func (t *ThirdParty) Check(pkg config.Package) (bool, string) {
 }
 
 func (t *ThirdParty) Install(ctx context.Context, pkg config.Package) error {
-	if pkg.URL == "" {
-		return fmt.Errorf("missing 'url' for third_party package %q", pkg.Name)
+	if pkg.ThirdParty == nil || pkg.ThirdParty.URL == "" {
+		return fmt.Errorf("missing 'third_party.url' for package %q", pkg.Name)
 	}
+	tp := pkg.ThirdParty
 
-	tmp, err := t.download(ctx, pkg.URL)
+	tmp, err := t.download(ctx, tp.URL)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
 
-	dir := pkg.InstallDir
-	if dir == "" {
-		dir = t.installDir
+	if tp.Checksum != "" {
+		if err := verifyChecksum(tmp, tp.Checksum); err != nil {
+			return err
+		}
+	}
+
+	dir := t.installDir
+	if tp.InstallDir != "" {
+		dir = tp.InstallDir
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating install dir: %w", err)
@@ -62,13 +73,13 @@ func (t *ThirdParty) Install(ctx context.Context, pkg config.Package) error {
 
 	ext := strings.ToLower(filepath.Ext(tmp))
 
-	if pkg.RunInstaller {
+	if tp.RunInstaller {
 		switch ext {
 		case ".msi":
 			args := []string{"/i", tmp, "/quiet", "/norestart"}
-			return runCtx(ctx, "msiexec.exe", append(args, pkg.Args...)...)
+			return runCtx(ctx, "msiexec.exe", append(args, tp.Args...)...)
 		default:
-			return runCtx(ctx, tmp, pkg.Args...)
+			return runCtx(ctx, tmp, tp.Args...)
 		}
 	}
 
@@ -78,6 +89,42 @@ func (t *ThirdParty) Install(ctx context.Context, pkg config.Package) error {
 
 func (t *ThirdParty) Uninstall(ctx context.Context, pkg config.Package) error {
 	return fmt.Errorf("uninstall is not supported for third_party source")
+}
+
+// verifyChecksum checks the file at path against a "algo:hexdigest" string.
+// Supported algorithms: sha256, sha512.
+func verifyChecksum(path, checksum string) error {
+	parts := strings.SplitN(checksum, ":", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid checksum format %q — expected algo:hexdigest (e.g. sha256:abc123...)", checksum)
+	}
+	algo, expected := parts[0], strings.ToLower(parts[1])
+
+	var h hash.Hash
+	switch strings.ToLower(algo) {
+	case "sha256":
+		h = sha256.New()
+	case "sha512":
+		h = sha512.New()
+	default:
+		return fmt.Errorf("unsupported checksum algorithm %q — supported: sha256, sha512", algo)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening file for checksum: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("computing checksum: %w", err)
+	}
+
+	actual := hex.EncodeToString(h.Sum(nil))
+	if actual != expected {
+		return fmt.Errorf("checksum mismatch: expected %s:%s, got %s", algo, expected, actual)
+	}
+	return nil
 }
 
 func (t *ThirdParty) download(ctx context.Context, url string) (string, error) {

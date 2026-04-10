@@ -10,15 +10,32 @@ import "github.com/lucasassuncao/apptide/internal/config"
 
 ## Index
 
+- [type ChocolateyConfig](<#ChocolateyConfig>)
 - [type Config](<#Config>)
-  - [func Load\(path string\) \(Config, error\)](<#Load>)
   - [func LoadWithImports\(path string\) \(Config, error\)](<#LoadWithImports>)
   - [func \(c Config\) Categories\(\) \[\]string](<#Config.Categories>)
+- [type GitHubConfig](<#GitHubConfig>)
 - [type Package](<#Package>)
+- [type ScoopConfig](<#ScoopConfig>)
+- [type ThirdPartyConfig](<#ThirdPartyConfig>)
+- [type WingetConfig](<#WingetConfig>)
 
+
+<a name="ChocolateyConfig"></a>
+## type [ChocolateyConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L21-L25>)
+
+ChocolateyConfig holds fields specific to the chocolatey source.
+
+```go
+type ChocolateyConfig struct {
+    ID            string   `yaml:"id"`             // package identifier (e.g. "googlechrome")
+    Args          []string `yaml:"args"`           // extra CLI arguments passed to choco
+    PackageParams string   `yaml:"package_params"` // parameters forwarded to the package script (--package-parameters)
+}
+```
 
 <a name="Config"></a>
-## type [Config](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L50>)
+## type [Config](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L83>)
 
 Config maps category names to their package lists.
 
@@ -26,17 +43,8 @@ Config maps category names to their package lists.
 type Config map[string][]Package
 ```
 
-<a name="Load"></a>
-### func [Load](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L53>)
-
-```go
-func Load(path string) (Config, error)
-```
-
-Load reads and parses a YAML config file \(no import resolution\).
-
 <a name="LoadWithImports"></a>
-### func [LoadWithImports](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L68>)
+### func [LoadWithImports](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L88>)
 
 ```go
 func LoadWithImports(path string) (Config, error)
@@ -45,7 +53,7 @@ func LoadWithImports(path string) (Config, error)
 LoadWithImports reads a YAML config file and recursively resolves any \`import:\` entries, merging all packages into a single Config. Import paths are relative to the file that declares them. Circular imports are detected and reported as errors.
 
 <a name="Config.Categories"></a>
-### func \(Config\) [Categories](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L154>)
+### func \(Config\) [Categories](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L174>)
 
 ```go
 func (c Config) Categories() []string
@@ -53,36 +61,37 @@ func (c Config) Categories() []string
 
 Categories returns the sorted list of category names.
 
+<a name="GitHubConfig"></a>
+## type [GitHubConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L35-L42>)
+
+GitHubConfig holds fields specific to the github source.
+
+```go
+type GitHubConfig struct {
+    Repo         string   `yaml:"repo"`          // "owner/repo"
+    AssetPattern string   `yaml:"asset_pattern"` // glob to match a specific release asset (e.g. "*windows_amd64*.zip")
+    RunInstaller bool     `yaml:"run_installer"` // run the .exe/.msi instead of copying the binary
+    InstallDir   string   `yaml:"install_dir"`   // override the default binary destination directory
+    Args         []string `yaml:"args"`          // extra CLI arguments passed to the installer (when run_installer: true)
+    BinaryName   string   `yaml:"binary_name"`   // explicit binary name to use instead of lowercased package name (e.g. "gh" for "GitHub CLI")
+}
+```
+
 <a name="Package"></a>
-## type [Package](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L13-L47>)
+## type [Package](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L54-L80>)
 
 Package represents a single software entry in the config file.
 
 ```go
 type Package struct {
     // Common fields
-    Name        string `yaml:"name"`
-    Source      string `yaml:"source"`      // winget | chocolatey | scoop | github | third_party
+    Name        string `yaml:"name"`        // display name (required)
+    Source      string `yaml:"source"`      // winget | chocolatey | scoop | github | third_party (required)
     Action      string `yaml:"action"`      // install | uninstall | skip  (default: install)
     Version     string `yaml:"version"`     // specific version or "latest" (default: latest)
     Description string `yaml:"description"` // informational only
     NoUpgrade   bool   `yaml:"no_upgrade"`  // skip upgrade when already installed
-
-    // winget / chocolatey / scoop
-    ID   string   `yaml:"id"`   // package identifier for the package manager
-    Args []string `yaml:"args"` // extra CLI arguments passed to the installer
-
-    // github
-    Repo         string `yaml:"repo"`          // "owner/repo"
-    AssetPattern string `yaml:"asset_pattern"` // glob to match a specific release asset (e.g. "*windows_amd64*.zip")
-    RunInstaller bool   `yaml:"run_installer"` // run the .exe/.msi instead of copying the binary
-    InstallDir   string `yaml:"install_dir"`   // override the default binary destination directory
-
-    // third_party
-    URL string `yaml:"url"` // direct download URL for the installer/binary
-
-    // informational
-    InfoURL string `yaml:"info_url"` // project homepage / docs link
+    InfoURL     string `yaml:"info_url"`    // project homepage / docs link
 
     // PreInstall is an optional shell command executed before install/uninstall.
     // Runs via: cmd /C <pre_install>
@@ -93,6 +102,55 @@ type Package struct {
     // Runs via: cmd /C <post_install>
     // A non-zero exit code is reported as a warning but does not mark the package as failed.
     PostInstall string `yaml:"post_install"`
+
+    // Source-specific blocks — at most one will be set per package.
+    Winget     *WingetConfig     `yaml:"winget"`
+    Chocolatey *ChocolateyConfig `yaml:"chocolatey"`
+    Scoop      *ScoopConfig      `yaml:"scoop"`
+    GitHub     *GitHubConfig     `yaml:"github"`
+    ThirdParty *ThirdPartyConfig `yaml:"third_party"`
+}
+```
+
+<a name="ScoopConfig"></a>
+## type [ScoopConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L28-L32>)
+
+ScoopConfig holds fields specific to the scoop source.
+
+```go
+type ScoopConfig struct {
+    ID     string   `yaml:"id"`     // package identifier (e.g. "vim")
+    Args   []string `yaml:"args"`   // extra CLI arguments passed to scoop
+    Bucket string   `yaml:"bucket"` // scoop bucket that provides the package (e.g. "extras")
+}
+```
+
+<a name="ThirdPartyConfig"></a>
+## type [ThirdPartyConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L45-L51>)
+
+ThirdPartyConfig holds fields specific to the third\_party source.
+
+```go
+type ThirdPartyConfig struct {
+    URL          string   `yaml:"url"`           // direct download URL for the installer/binary
+    RunInstaller bool     `yaml:"run_installer"` // run the downloaded file instead of copying it
+    InstallDir   string   `yaml:"install_dir"`   // override the default binary destination directory
+    Args         []string `yaml:"args"`          // extra CLI arguments passed to the installer (when run_installer: true)
+    Checksum     string   `yaml:"checksum"`      // expected checksum of the downloaded file (e.g. "sha256:abc123...")
+}
+```
+
+<a name="WingetConfig"></a>
+## type [WingetConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L13-L18>)
+
+WingetConfig holds fields specific to the winget source.
+
+```go
+type WingetConfig struct {
+    ID     string   `yaml:"id"`     // package identifier (e.g. "Publisher.App")
+    Args   []string `yaml:"args"`   // extra CLI arguments passed to winget
+    Scope  string   `yaml:"scope"`  // installation scope: "machine" or "user" (--scope)
+    Locale string   `yaml:"locale"` // installer locale (e.g. "pt-BR") (--locale)
 }
 ```
 

@@ -22,13 +22,6 @@ const (
 	SourceThirdParty = "third_party"
 )
 
-// checkInstalled reports whether the given package ID is currently installed
-// according to the provided Installer.
-func checkInstalled(i Installer, id string) bool {
-	installed, _ := i.Check(config.Package{ID: id})
-	return installed
-}
-
 // Installer handles install/uninstall for a specific package source.
 type Installer interface {
 	// Name returns the source identifier (e.g. "winget").

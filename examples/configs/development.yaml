@@ -1,0 +1,7 @@
+Development:
+  - name: "VS Code"
+    source: winget
+    id: "Microsoft.VisualStudioCode"
+    description: "The open-source AI code editor"
+    info_url: "https://code.visualstudio.com/"
+    action: install

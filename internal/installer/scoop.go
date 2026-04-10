@@ -22,36 +22,43 @@ func (s *Scoop) IsAvailable() bool {
 }
 
 func (s *Scoop) Install(ctx context.Context, pkg config.Package) error {
-	if pkg.ID == "" {
-		return fmt.Errorf("missing 'id' for scoop package %q", pkg.Name)
+	if pkg.Scoop == nil || pkg.Scoop.ID == "" {
+		return fmt.Errorf("missing 'scoop.id' for package %q", pkg.Name)
 	}
 
-	if s.isInstalled(pkg.ID) {
+	if pkg.Scoop.Bucket != "" {
+		// Ensure the bucket is available; scoop is idempotent for already-added buckets.
+		if err := runCtx(ctx, "scoop", "bucket", "add", pkg.Scoop.Bucket); err != nil {
+			return fmt.Errorf("adding scoop bucket %q: %w", pkg.Scoop.Bucket, err)
+		}
+	}
+
+	if s.isInstalled(pkg) {
 		if pkg.NoUpgrade {
 			return ErrAlreadyInstalled
 		}
 		if s.force {
 			// Scoop has no --force flag; uninstall then reinstall.
-			_ = runCtx(ctx, "scoop", "uninstall", pkg.ID)
-			return runScoop(ctx, append([]string{"install", pkg.ID}, pkg.Args...)...)
+			_ = runCtx(ctx, "scoop", "uninstall", pkg.Scoop.ID)
+			return runScoop(ctx, append([]string{"install", pkg.Scoop.ID}, pkg.Scoop.Args...)...)
 		}
-		return runScoop(ctx, append([]string{"update", pkg.ID}, pkg.Args...)...)
+		return runScoop(ctx, append([]string{"update", pkg.Scoop.ID}, pkg.Scoop.Args...)...)
 	}
-	return runScoop(ctx, append([]string{"install", pkg.ID}, pkg.Args...)...)
+	return runScoop(ctx, append([]string{"install", pkg.Scoop.ID}, pkg.Scoop.Args...)...)
 }
 
 func (s *Scoop) Uninstall(ctx context.Context, pkg config.Package) error {
-	if pkg.ID == "" {
-		return fmt.Errorf("missing 'id' for scoop package %q", pkg.Name)
+	if pkg.Scoop == nil || pkg.Scoop.ID == "" {
+		return fmt.Errorf("missing 'scoop.id' for package %q", pkg.Name)
 	}
-	if !s.isInstalled(pkg.ID) {
+	if !s.isInstalled(pkg) {
 		return ErrAlreadyInstalled
 	}
-	return runCtx(ctx, "scoop", "uninstall", pkg.ID)
+	return runCtx(ctx, "scoop", "uninstall", pkg.Scoop.ID)
 }
 
 func (s *Scoop) Check(pkg config.Package) (bool, string) {
-	if pkg.ID == "" {
+	if pkg.Scoop == nil || pkg.Scoop.ID == "" {
 		return false, ""
 	}
 	out, err := exec.Command("scoop", "list").CombinedOutput()
@@ -60,7 +67,7 @@ func (s *Scoop) Check(pkg config.Package) (bool, string) {
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) > 0 && strings.EqualFold(fields[0], pkg.ID) {
+		if len(fields) > 0 && strings.EqualFold(fields[0], pkg.Scoop.ID) {
 			if len(fields) > 1 {
 				return true, fields[1]
 			}
@@ -70,7 +77,10 @@ func (s *Scoop) Check(pkg config.Package) (bool, string) {
 	return false, ""
 }
 
-func (s *Scoop) isInstalled(id string) bool { return checkInstalled(s, id) }
+func (s *Scoop) isInstalled(pkg config.Package) bool {
+	installed, _ := s.Check(pkg)
+	return installed
+}
 
 // runScoop runs a scoop command with captured output so we can:
 //  1. Strip the noisy self-update block ("Updating Scoop..." … "Scoop was updated successfully!")

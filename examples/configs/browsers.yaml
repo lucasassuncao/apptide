@@ -1,0 +1,7 @@
+Browsers:
+  - name: "Chrome"
+    source: winget
+    id: "Google.Chrome"
+    description: "Google Chrome web browser"
+    info_url: "https://www.google.com/chrome/"
+    action: install

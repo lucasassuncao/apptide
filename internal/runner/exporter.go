@@ -81,11 +81,12 @@ func writeCategory(w io.Writer, category string, pkgs []exportEntry) {
 	for _, p := range pkgs {
 		fmt.Fprintf(w, "  - name: %q\n", p.name)
 		fmt.Fprintf(w, "    source: %s\n", p.source)
-		fmt.Fprintf(w, "    id: %q\n", p.id)
 		if p.version != "" && p.version != "Unknown" {
 			fmt.Fprintf(w, "    version: %q\n", p.version)
 		}
-		fmt.Fprintf(w, "    action: install\n\n")
+		fmt.Fprintf(w, "    action: install\n")
+		fmt.Fprintf(w, "    %s:\n", p.source)
+		fmt.Fprintf(w, "      id: %q\n\n", p.id)
 	}
 }
 
