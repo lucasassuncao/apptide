@@ -58,7 +58,7 @@ func (m model) Init() tea.Cmd {
 		return tea.Quit
 	}
 	calcWidths(m.rows)
-	return tea.Batch(
+	return tea.Sequence(
 		tea.Println(renderHeader(m.dryRun)),
 		runRow(m.ctx, 0, m.rows[0], m.instOpts, m.dryRun),
 	)
