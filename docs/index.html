@@ -120,7 +120,8 @@ apptide validate          <span class="cmt"># validate your config</span>
 apptide list              <span class="cmt"># list all configured packages</span>
 apptide install           <span class="cmt"># install all packages</span>
 apptide verify            <span class="cmt"># check which packages are installed</span>
-apptide doctor            <span class="cmt"># diagnose system health</span></pre>
+apptide doctor            <span class="cmt"># diagnose system health</span>
+apptide doctor --install-missing  <span class="cmt"># install any missing package managers</span></pre>
     </div>
   </section>
 
@@ -172,6 +173,7 @@ apptide doctor            <span class="cmt"># diagnose system health</span></pre
         <tr><td>apptide verify</td><td>Check which packages are installed and detect version mismatches</td></tr>
         <tr><td>apptide validate</td><td>Verify YAML configuration syntax and completeness</td></tr>
         <tr><td>apptide doctor</td><td>Diagnose system health and check package manager availability</td></tr>
+        <tr><td>apptide doctor --install-missing</td><td>Automatically install any missing package managers (winget, scoop, chocolatey)</td></tr>
         <tr><td>apptide export</td><td>Export current system state as a packages.yaml template</td></tr>
         <tr><td>apptide selfupdate</td><td>Download and apply the latest AppTide release</td></tr>
       </tbody>

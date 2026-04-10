@@ -100,6 +100,7 @@ Check system health:
 
 ```bash
 apptide doctor
+apptide doctor --install-missing  # install any missing package managers
 ```
 
 ## Commands
@@ -109,6 +110,7 @@ apptide doctor
 | `list` | Display all configured packages and their metadata |
 | `install` | Install or update all packages marked with `action: install` |
 | `doctor` | Diagnose system health and check package manager availability |
+| `doctor --install-missing` | Automatically install any missing package managers |
 | `validate` | Verify YAML configuration syntax and completeness |
 | `verify` | Check which packages are installed and detect version mismatches |
 | `export` | Export current system state as a packages.yaml template |
@@ -277,7 +279,7 @@ apptide doctor --output json
 
 ```json
 {
-  "managers": [{ "name": "winget", "available": true, "version": "...", "path": "..." }],
+  "managers": [{ "name": "winget", "available": true, "version": "...", "path": "...", "auto_installable": true }],
   "apptide": { "install_dir": "...", "install_dir_exists": true, "in_path": false },
   "updater_repo": "",
   "all_ok": false
