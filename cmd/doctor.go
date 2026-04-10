@@ -18,8 +18,9 @@ type managerInfo struct {
 	name           string
 	binary         string
 	versionArg     string
-	versionPattern string // optional regexp to extract version from output
-	installHow     string // human-readable install instructions
+	versionPattern string   // optional regexp to extract version from output
+	installHow     string   // human-readable install instructions
+	installArgs    []string // powershell args to auto-install; nil means not auto-installable
 }
 
 var managers = []managerInfo{
@@ -27,7 +28,14 @@ var managers = []managerInfo{
 		name:       "winget",
 		binary:     "winget",
 		versionArg: "--version",
-		installHow: "winget ships with Windows 10/11. Update via Microsoft Store → App Installer.",
+		installHow: "Installs via .msixbundle from GitHub Releases (requires Add-AppxPackage).",
+		installArgs: []string{
+			"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+			"-Command",
+			"$out = \"$env:TEMP\\AppInstaller.msixbundle\"; " +
+				"Invoke-WebRequest -Uri https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle -OutFile $out; " +
+				"Add-AppxPackage -Path $out",
+		},
 	},
 	{
 		name:           "scoop",
@@ -35,12 +43,22 @@ var managers = []managerInfo{
 		versionArg:     "--version",
 		versionPattern: `(\d+\.\d+\.\d+)`,
 		installHow:     "Run in PowerShell:  irm get.scoop.sh | iex",
+		installArgs: []string{
+			"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+			"-Command", "irm get.scoop.sh | iex",
+		},
 	},
 	{
 		name:       "chocolatey",
 		binary:     "choco",
 		versionArg: "--version",
-		installHow: "Run in PowerShell (admin):\n       Set-ExecutionPolicy Bypass -Scope Process -Force\n       iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))",
+		installHow: "Run in PowerShell (admin): see https://chocolatey.org/install",
+		installArgs: []string{
+			"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+			"-Command",
+			"Set-ExecutionPolicy Bypass -Scope Process -Force; " +
+				"iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))",
+		},
 	},
 }
 
@@ -53,10 +71,13 @@ const (
 	doctorGray   = "\033[90m"
 )
 
+var doctorInstallMissing bool
+
 var doctorCmd = &cobra.Command{
-	Use:     "doctor",
-	Short:   "Check whether all supported package managers are installed and working",
-	Example: `  apptide doctor`,
+	Use:   "doctor",
+	Short: "Check whether all supported package managers are installed and working",
+	Example: `  apptide doctor
+  apptide doctor --install-missing`,
 	Run: func(cmd *cobra.Command, args []string) {
 		ok := runDoctor()
 		if !ok {
@@ -66,6 +87,7 @@ var doctorCmd = &cobra.Command{
 }
 
 func init() {
+	doctorCmd.Flags().BoolVar(&doctorInstallMissing, "install-missing", false, "attempt to install any missing package managers")
 	rootCmd.AddCommand(doctorCmd)
 }
 
@@ -79,10 +101,10 @@ func runDoctor() bool {
 	if output.IsJSON() {
 		return runDoctorJSON(binDir)
 	}
-	return runDoctorTable(binDir)
+	return runDoctorTable()
 }
 
-func runDoctorTable(binDir string) bool {
+func runDoctorTable() bool {
 	allOK := true
 
 	fmt.Printf("\n%s%s[Package Managers]%s\n", doctorBold, doctorYellow, doctorReset)
@@ -92,7 +114,7 @@ func runDoctorTable(binDir string) bool {
 		if err != nil {
 			allOK = false
 			fmt.Printf("  %s✗%s  %-14s %snot found%s\n", doctorRed, doctorReset, m.name, doctorGray, doctorReset)
-			fmt.Printf("       %s↳ %s%s\n\n", doctorGray, m.installHow, doctorReset)
+			printMissingHint(m, &allOK)
 			continue
 		}
 
@@ -103,23 +125,6 @@ func runDoctorTable(binDir string) bool {
 			doctorGreen, version, doctorReset,
 			doctorGray, path, doctorReset,
 		)
-	}
-
-	// ── apptide install dir ──────────────────────────────────────────────
-	fmt.Printf("\n%s%s[apptide]%s\n", doctorBold, doctorYellow, doctorReset)
-
-	if _, err := os.Stat(binDir); err == nil {
-		fmt.Printf("  %s✓%s  Install dir  %s%s%s\n", doctorGreen, doctorReset, doctorGray, binDir, doctorReset)
-	} else {
-		fmt.Printf("  %s-%s  Install dir  %s%s (not created yet)%s\n", doctorGray, doctorReset, doctorGray, binDir, doctorReset)
-	}
-
-	if pathutil.IsInUserPath(binDir) {
-		fmt.Printf("  %s✓%s  Install dir is in %%PATH%%\n", doctorGreen, doctorReset)
-	} else {
-		allOK = false
-		fmt.Printf("  %s✗%s  Install dir is %snot in %%PATH%%%s\n", doctorYellow, doctorReset, doctorGray, doctorReset)
-		fmt.Printf("       %s↳ run: apptide install --add-to-path%s\n", doctorGray, doctorReset)
 	}
 
 	// ── Self-update repo ────────────────────────────────────────────────────
@@ -140,12 +145,31 @@ func runDoctorTable(binDir string) bool {
 	return allOK
 }
 
+func printMissingHint(m managerInfo, allOK *bool) {
+	if !doctorInstallMissing {
+		fmt.Printf("       %s↳ %s%s\n\n", doctorGray, m.installHow, doctorReset)
+		return
+	}
+	if m.installArgs == nil {
+		fmt.Printf("       %s↳ cannot auto-install: %s%s\n\n", doctorGray, m.installHow, doctorReset)
+		return
+	}
+	fmt.Printf("       %s↳ installing %s…%s\n", doctorGray, m.name, doctorReset)
+	if err := runInstall(m); err != nil {
+		fmt.Printf("       %s✗ install failed: %v%s\n\n", doctorRed, err, doctorReset)
+	} else {
+		fmt.Printf("       %s✓ installed successfully%s\n\n", doctorGreen, doctorReset)
+		*allOK = true
+	}
+}
+
 func runDoctorJSON(binDir string) bool {
 	type managerResult struct {
-		Name      string `json:"name"`
-		Available bool   `json:"available"`
-		Version   string `json:"version,omitempty"`
-		Path      string `json:"path,omitempty"`
+		Name            string `json:"name"`
+		Available       bool   `json:"available"`
+		Version         string `json:"version,omitempty"`
+		Path            string `json:"path,omitempty"`
+		AutoInstallable bool   `json:"auto_installable,omitempty"`
 	}
 	type apptideResult struct {
 		InstallDir      string `json:"install_dir"`
@@ -165,7 +189,7 @@ func runDoctorJSON(binDir string) bool {
 		p, err := exec.LookPath(m.binary)
 		if err != nil {
 			allOK = false
-			mgrs = append(mgrs, managerResult{Name: m.name, Available: false})
+			mgrs = append(mgrs, managerResult{Name: m.name, Available: false, AutoInstallable: m.installArgs != nil})
 			continue
 		}
 		mgrs = append(mgrs, managerResult{
@@ -193,6 +217,14 @@ func runDoctorJSON(binDir string) bool {
 		AllOK:       allOK,
 	})
 	return allOK
+}
+
+// runInstall executes the install command for a package manager, streaming output to stdout.
+func runInstall(m managerInfo) error {
+	cmd := exec.Command(m.installArgs[0], m.installArgs[1:]...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // getVersion runs `binary versionArg` and returns the version string.

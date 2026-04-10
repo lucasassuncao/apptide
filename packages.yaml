@@ -31,16 +31,16 @@
 #   post_install : shell command run after success   — non-zero exit is a warning only
 
 import:
-  - ./configs/browsers.yaml
-  - ./configs/development.yaml
-  - ./configs/devops.yaml
-  - ./configs/cli-tools.yaml
-  - ./configs/file-managers.yaml
-  - ./configs/multimedia.yaml
-  - ./configs/file-transfer.yaml
-  - ./configs/productivity.yaml
-  - ./configs/system-monitoring.yaml
-  - ./configs/virtualization.yaml
-  - ./configs/security.yaml
-  - ./configs/gaming.yaml
-  - ./configs/ai-tools.yaml
+  - ./apptide/browsers.yaml
+  - ./apptide/development.yaml
+  - ./apptide/devops.yaml
+  - ./apptide/cli-tools.yaml
+  - ./apptide/file-managers.yaml
+  - ./apptide/multimedia.yaml
+  - ./apptide/file-transfer.yaml
+  - ./apptide/productivity.yaml
+  - ./apptide/system-monitoring.yaml
+  - ./apptide/virtualization.yaml
+  - ./apptide/security.yaml
+  - ./apptide/gaming.yaml
+  - ./apptide/ai-tools.yaml
