@@ -37,13 +37,6 @@ import "github.com/lucasassuncao/apptide/internal/installer"
   - [func \(s \*Scoop\) IsAvailable\(\) bool](<#Scoop.IsAvailable>)
   - [func \(s \*Scoop\) Name\(\) string](<#Scoop.Name>)
   - [func \(s \*Scoop\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#Scoop.Uninstall>)
-- [type ThirdParty](<#ThirdParty>)
-  - [func NewThirdParty\(installDir string\) \*ThirdParty](<#NewThirdParty>)
-  - [func \(t \*ThirdParty\) Check\(pkg config.Package\) \(bool, string\)](<#ThirdParty.Check>)
-  - [func \(t \*ThirdParty\) Install\(ctx context.Context, pkg config.Package\) error](<#ThirdParty.Install>)
-  - [func \(t \*ThirdParty\) IsAvailable\(\) bool](<#ThirdParty.IsAvailable>)
-  - [func \(t \*ThirdParty\) Name\(\) string](<#ThirdParty.Name>)
-  - [func \(t \*ThirdParty\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#ThirdParty.Uninstall>)
 - [type Winget](<#Winget>)
   - [func NewWinget\(force bool\) \*Winget](<#NewWinget>)
   - [func \(w \*Winget\) Check\(pkg config.Package\) \(bool, string\)](<#Winget.Check>)
@@ -63,7 +56,6 @@ const (
     SourceChocolatey = "chocolatey"
     SourceScoop      = "scoop"
     SourceGitHub     = "github"
-    SourceThirdParty = "third_party"
 )
 ```
 
@@ -76,7 +68,7 @@ var ErrAlreadyInstalled = errors.New("already installed")
 ```
 
 <a name="DefaultInstallDir"></a>
-## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L70>)
+## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L67>)
 
 ```go
 func DefaultInstallDir() string
@@ -215,7 +207,7 @@ func (g *GitHub) Uninstall(ctx context.Context, pkg config.Package) error
 
 
 <a name="Installer"></a>
-## type [Installer](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L26-L37>)
+## type [Installer](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L25-L36>)
 
 Installer handles install/uninstall for a specific package source.
 
@@ -235,7 +227,7 @@ type Installer interface {
 ```
 
 <a name="Resolve"></a>
-### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L47>)
+### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L46>)
 
 ```go
 func Resolve(source string, opts Options) (Installer, error)
@@ -244,7 +236,7 @@ func Resolve(source string, opts Options) (Installer, error)
 Resolve returns the correct Installer for the given source name.
 
 <a name="Options"></a>
-## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L40-L44>)
+## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L39-L43>)
 
 Options configures source\-specific settings passed to Resolve.
 
@@ -317,71 +309,6 @@ func (s *Scoop) Name() string
 
 ```go
 func (s *Scoop) Uninstall(ctx context.Context, pkg config.Package) error
-```
-
-
-
-<a name="ThirdParty"></a>
-## type [ThirdParty](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/thirdparty.go#L20-L23>)
-
-ThirdParty downloads and installs standalone packages from arbitrary URLs.
-
-```go
-type ThirdParty struct {
-    // contains filtered or unexported fields
-}
-```
-
-<a name="NewThirdParty"></a>
-### func [NewThirdParty](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/thirdparty.go#L25>)
-
-```go
-func NewThirdParty(installDir string) *ThirdParty
-```
-
-
-
-<a name="ThirdParty.Check"></a>
-### func \(\*ThirdParty\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/thirdparty.go#L36>)
-
-```go
-func (t *ThirdParty) Check(pkg config.Package) (bool, string)
-```
-
-Check looks for any file matching \<name\>.\* in the install directory.
-
-<a name="ThirdParty.Install"></a>
-### func \(\*ThirdParty\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/thirdparty.go#L48>)
-
-```go
-func (t *ThirdParty) Install(ctx context.Context, pkg config.Package) error
-```
-
-
-
-<a name="ThirdParty.IsAvailable"></a>
-### func \(\*ThirdParty\) [IsAvailable](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/thirdparty.go#L33>)
-
-```go
-func (t *ThirdParty) IsAvailable() bool
-```
-
-
-
-<a name="ThirdParty.Name"></a>
-### func \(\*ThirdParty\) [Name](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/thirdparty.go#L32>)
-
-```go
-func (t *ThirdParty) Name() string
-```
-
-
-
-<a name="ThirdParty.Uninstall"></a>
-### func \(\*ThirdParty\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/thirdparty.go#L90>)
-
-```go
-func (t *ThirdParty) Uninstall(ctx context.Context, pkg config.Package) error
 ```
 
 

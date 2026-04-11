@@ -19,7 +19,6 @@ const (
 	SourceChocolatey = "chocolatey"
 	SourceScoop      = "scoop"
 	SourceGitHub     = "github"
-	SourceThirdParty = "third_party"
 )
 
 // Installer handles install/uninstall for a specific package source.
@@ -59,10 +58,8 @@ func Resolve(source string, opts Options) (Installer, error) {
 		return NewScoop(opts.Force), nil
 	case SourceGitHub:
 		return NewGitHub(opts.GitHubToken, dir), nil
-	case SourceThirdParty:
-		return NewThirdParty(dir), nil
 	default:
-		return nil, fmt.Errorf("unknown source %q — valid: winget, chocolatey, scoop, github, third_party", source)
+		return nil, fmt.Errorf("unknown source %q — valid: winget, chocolatey, scoop, github", source)
 	}
 }
 

@@ -14,8 +14,7 @@ import (
 
 // ExportOptions configures the export command.
 type ExportOptions struct {
-	Output      string // file path; empty = stdout
-	GitHubToken string
+	Output string // file path; empty = stdout
 }
 
 // Export generates a packages.yaml from all installed packages detected by

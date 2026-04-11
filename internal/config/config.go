@@ -41,20 +41,11 @@ type GitHubConfig struct {
 	BinaryName   string   `yaml:"binary_name"`   // explicit binary name to use instead of lowercased package name (e.g. "gh" for "GitHub CLI")
 }
 
-// ThirdPartyConfig holds fields specific to the third_party source.
-type ThirdPartyConfig struct {
-	URL          string   `yaml:"url"`           // direct download URL for the installer/binary
-	RunInstaller bool     `yaml:"run_installer"` // run the downloaded file instead of copying it
-	InstallDir   string   `yaml:"install_dir"`   // override the default binary destination directory
-	Args         []string `yaml:"args"`          // extra CLI arguments passed to the installer (when run_installer: true)
-	Checksum     string   `yaml:"checksum"`      // expected checksum of the downloaded file (e.g. "sha256:abc123...")
-}
-
 // Package represents a single software entry in the config file.
 type Package struct {
 	// Common fields
 	Name        string `yaml:"name"`        // display name (required)
-	Source      string `yaml:"source"`      // winget | chocolatey | scoop | github | third_party (required)
+	Source      string `yaml:"source"`      // winget | chocolatey | scoop | github (required)
 	Action      string `yaml:"action"`      // install | uninstall | skip  (default: install)
 	Version     string `yaml:"version"`     // specific version or "latest" (default: latest)
 	Description string `yaml:"description"` // informational only
@@ -76,7 +67,6 @@ type Package struct {
 	Chocolatey *ChocolateyConfig `yaml:"chocolatey"`
 	Scoop      *ScoopConfig      `yaml:"scoop"`
 	GitHub     *GitHubConfig     `yaml:"github"`
-	ThirdParty *ThirdPartyConfig `yaml:"third_party"`
 }
 
 // Config maps category names to their package lists.

@@ -16,8 +16,7 @@ a packages.yaml that can be used with 'apptide install' to replicate the setup.`
   apptide export --output backup.yaml  # write to file`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runner.Export(runner.ExportOptions{
-			Output:      exportOutput,
-			GitHubToken: resolveToken(githubToken),
+			Output: exportOutput,
 		})
 	},
 }
@@ -25,5 +24,4 @@ a packages.yaml that can be used with 'apptide install' to replicate the setup.`
 func init() {
 	rootCmd.AddCommand(exportCmd)
 	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "write to this file instead of stdout")
-	exportCmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub API token (defaults to $GITHUB_TOKEN)")
 }

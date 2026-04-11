@@ -132,7 +132,7 @@ func (m model) View() string {
 		verb = lgYellow.Render("dry-run")
 	case action == "uninstall":
 		verb = lgCyan.Render("uninstalling...")
-	case src == installer.SourceGitHub || src == installer.SourceThirdParty:
+	case src == installer.SourceGitHub:
 		verb = lgCyan.Render("downloading...")
 	default:
 		verb = lgCyan.Render("installing...")
@@ -188,7 +188,7 @@ func doInstall(ctx context.Context, idx int, r tableRow, opts installer.Options,
 	}
 
 	src := strings.ToLower(r.pkg.Source)
-	isBinary := src == installer.SourceGitHub || src == installer.SourceThirdParty
+	isBinary := src == installer.SourceGitHub
 
 	if err == nil {
 		_, newVersion := inst.Check(r.pkg)
@@ -361,8 +361,6 @@ func displayMethod(source string) string {
 		return "choco"
 	case installer.SourceGitHub:
 		return "github"
-	case installer.SourceThirdParty:
-		return "third-party"
 	default:
 		return source
 	}

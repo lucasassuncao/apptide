@@ -17,7 +17,6 @@ import "github.com/lucasassuncao/apptide/internal/config"
 - [type GitHubConfig](<#GitHubConfig>)
 - [type Package](<#Package>)
 - [type ScoopConfig](<#ScoopConfig>)
-- [type ThirdPartyConfig](<#ThirdPartyConfig>)
 - [type WingetConfig](<#WingetConfig>)
 
 
@@ -35,7 +34,7 @@ type ChocolateyConfig struct {
 ```
 
 <a name="Config"></a>
-## type [Config](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L83>)
+## type [Config](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L73>)
 
 Config maps category names to their package lists.
 
@@ -44,7 +43,7 @@ type Config map[string][]Package
 ```
 
 <a name="LoadWithImports"></a>
-### func [LoadWithImports](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L88>)
+### func [LoadWithImports](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L78>)
 
 ```go
 func LoadWithImports(path string) (Config, error)
@@ -53,7 +52,7 @@ func LoadWithImports(path string) (Config, error)
 LoadWithImports reads a YAML config file and recursively resolves any \`import:\` entries, merging all packages into a single Config. Import paths are relative to the file that declares them. Circular imports are detected and reported as errors.
 
 <a name="Config.Categories"></a>
-### func \(Config\) [Categories](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L174>)
+### func \(Config\) [Categories](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L164>)
 
 ```go
 func (c Config) Categories() []string
@@ -78,7 +77,7 @@ type GitHubConfig struct {
 ```
 
 <a name="Package"></a>
-## type [Package](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L54-L80>)
+## type [Package](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L45-L70>)
 
 Package represents a single software entry in the config file.
 
@@ -86,7 +85,7 @@ Package represents a single software entry in the config file.
 type Package struct {
     // Common fields
     Name        string `yaml:"name"`        // display name (required)
-    Source      string `yaml:"source"`      // winget | chocolatey | scoop | github | third_party (required)
+    Source      string `yaml:"source"`      // winget | chocolatey | scoop | github (required)
     Action      string `yaml:"action"`      // install | uninstall | skip  (default: install)
     Version     string `yaml:"version"`     // specific version or "latest" (default: latest)
     Description string `yaml:"description"` // informational only
@@ -108,7 +107,6 @@ type Package struct {
     Chocolatey *ChocolateyConfig `yaml:"chocolatey"`
     Scoop      *ScoopConfig      `yaml:"scoop"`
     GitHub     *GitHubConfig     `yaml:"github"`
-    ThirdParty *ThirdPartyConfig `yaml:"third_party"`
 }
 ```
 
@@ -122,21 +120,6 @@ type ScoopConfig struct {
     ID     string   `yaml:"id"`     // package identifier (e.g. "vim")
     Args   []string `yaml:"args"`   // extra CLI arguments passed to scoop
     Bucket string   `yaml:"bucket"` // scoop bucket that provides the package (e.g. "extras")
-}
-```
-
-<a name="ThirdPartyConfig"></a>
-## type [ThirdPartyConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L45-L51>)
-
-ThirdPartyConfig holds fields specific to the third\_party source.
-
-```go
-type ThirdPartyConfig struct {
-    URL          string   `yaml:"url"`           // direct download URL for the installer/binary
-    RunInstaller bool     `yaml:"run_installer"` // run the downloaded file instead of copying it
-    InstallDir   string   `yaml:"install_dir"`   // override the default binary destination directory
-    Args         []string `yaml:"args"`          // extra CLI arguments passed to the installer (when run_installer: true)
-    Checksum     string   `yaml:"checksum"`      // expected checksum of the downloaded file (e.g. "sha256:abc123...")
 }
 ```
 

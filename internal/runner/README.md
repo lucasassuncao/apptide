@@ -21,7 +21,7 @@ import "github.com/lucasassuncao/apptide/internal/runner"
 
 
 <a name="Export"></a>
-## func [Export](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/exporter.go#L23>)
+## func [Export](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/exporter.go#L22>)
 
 ```go
 func Export(opts ExportOptions) error
@@ -39,14 +39,13 @@ func Verify(opts VerifyOptions) error
 Verify checks which packages from the config are installed without making any changes.
 
 <a name="ExportOptions"></a>
-## type [ExportOptions](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/exporter.go#L16-L19>)
+## type [ExportOptions](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/exporter.go#L16-L18>)
 
 ExportOptions configures the export command.
 
 ```go
 type ExportOptions struct {
-    Output      string // file path; empty = stdout
-    GitHubToken string
+    Output string // file path; empty = stdout
 }
 ```
 

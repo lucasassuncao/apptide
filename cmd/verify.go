@@ -27,6 +27,6 @@ func init() {
 	// Bind the same package-level vars used by install.go.
 	verifyCmd.Flags().StringVarP(&category, "category", "C", "", "check only this category")
 	verifyCmd.Flags().StringVarP(&source, "source", "s", "", "check only this source")
-	verifyCmd.Flags().StringVar(&installDir, "install-dir", "", `default dir for github/third_party binaries`)
+	verifyCmd.Flags().StringVar(&installDir, "install-dir", "", `default dir for github binaries`)
 	verifyCmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub API token (defaults to $GITHUB_TOKEN)")
 }

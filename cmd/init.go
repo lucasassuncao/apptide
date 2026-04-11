@@ -79,7 +79,7 @@ func runInitWizard() error {
 	// ── Sources ───────────────────────────────────────────────────────────────
 	pterm.DefaultSection.Println("Package Sources")
 
-	allSources := []string{installer.SourceWinget, installer.SourceScoop, installer.SourceChocolatey, installer.SourceGitHub, installer.SourceThirdParty}
+	allSources := []string{installer.SourceWinget, installer.SourceScoop, installer.SourceChocolatey, installer.SourceGitHub}
 	selectedSources, err := pterm.DefaultInteractiveMultiselect.
 		WithOptions(allSources).
 		WithDefaultText("Which package managers do you use?").
@@ -287,15 +287,6 @@ func promptSourceFields(pkg *config.Package) error {
 		}
 		pkg.GitHub = &config.GitHubConfig{Repo: strings.TrimSpace(repo)}
 		pkg.Version = strings.TrimSpace(ver)
-
-	case installer.SourceThirdParty:
-		u, err := pterm.DefaultInteractiveTextInput.
-			WithDefaultText("Download URL").
-			Show()
-		if err != nil {
-			return err
-		}
-		pkg.ThirdParty = &config.ThirdPartyConfig{URL: strings.TrimSpace(u)}
 	}
 	return nil
 }
@@ -360,10 +351,6 @@ func packageIDLine(pkg config.Package) string {
 			}
 			return line
 		}
-	case installer.SourceThirdParty:
-		if pkg.ThirdParty != nil && pkg.ThirdParty.URL != "" {
-			return fmt.Sprintf("url: %s", pkg.ThirdParty.URL)
-		}
 	}
 	return ""
 }
@@ -397,15 +384,17 @@ func writeWizardResult(path string, entries []wizardPkg, catOrder []string) erro
 	}
 
 	// Packages whose category wasn't in catOrder (shouldn't happen, but be safe).
-	written := make(map[string]bool)
+	catOrderSet := make(map[string]bool, len(catOrder))
 	for _, c := range catOrder {
-		written[c] = true
+		catOrderSet[c] = true
 	}
 	for _, e := range entries {
-		if !written[e.category] {
+		if !catOrderSet[e.category] {
+			catOrderSet[e.category] = true // write header only once
 			fmt.Fprintf(f, "%s:\n", e.category)
-			writePackageEntry(f, e.pkg)
-			written[e.category] = true
+			for _, pkg := range groups[e.category] {
+				writePackageEntry(f, pkg)
+			}
 		}
 	}
 
@@ -440,7 +429,7 @@ func templateMinimal() string {
 #
 # Fields reference:
 #   name          : display name (required)
-#   source        : winget | chocolatey | scoop | github | third_party (required)
+#   source        : winget | chocolatey | scoop | github (required)
 #   action        : install | uninstall | skip  (default: install)
 #   description   : informational
 #   no_upgrade    : true → skip upgrade when already installed
@@ -450,7 +439,6 @@ func templateMinimal() string {
 #   chocolatey:  id: "package-name"
 #   scoop:       id: "package-name"
 #   github:      repo: "owner/repo"   binary_name: "gh"   (+ version: "latest")
-#   third_party: url: "https://..."
 
 MyApps:
   - name: "Example App"
@@ -550,11 +538,6 @@ func writePackageEntry(w *os.File, pkg config.Package) {
 			fmt.Fprintf(w, "    version: %q\n", v)
 			fmt.Fprintf(w, "    github:\n")
 			fmt.Fprintf(w, "      repo: %q\n", pkg.GitHub.Repo)
-		}
-	case installer.SourceThirdParty:
-		if pkg.ThirdParty != nil && pkg.ThirdParty.URL != "" {
-			fmt.Fprintf(w, "    third_party:\n")
-			fmt.Fprintf(w, "      url: %q\n", pkg.ThirdParty.URL)
 		}
 	}
 

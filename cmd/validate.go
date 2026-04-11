@@ -42,7 +42,7 @@ type validationIssue struct {
 
 var knownSources = map[string]bool{
 	installer.SourceWinget: true, installer.SourceChocolatey: true, "choco": true,
-	installer.SourceScoop: true, installer.SourceGitHub: true, installer.SourceThirdParty: true,
+	installer.SourceScoop: true, installer.SourceGitHub: true,
 }
 
 var knownActions = map[string]bool{
@@ -116,7 +116,7 @@ func validateSource(cat, label string, pkg config.Package) []validationIssue {
 	case !knownSources[src]:
 		issues = append(issues, validationIssue{
 			cat, label, "source",
-			fmt.Sprintf("%q is not valid (winget, chocolatey, scoop, github, third_party)", pkg.Source),
+			fmt.Sprintf("%q is not valid (winget, chocolatey, scoop, github)", pkg.Source),
 		})
 	default:
 		issues = append(issues, validateSourceBlock(cat, label, src, pkg)...)
@@ -142,10 +142,6 @@ func validateSourceBlock(cat, label, src string, pkg config.Package) []validatio
 	case installer.SourceGitHub:
 		if pkg.GitHub == nil || pkg.GitHub.Repo == "" {
 			return []validationIssue{{cat, label, "github.repo", "required for github"}}
-		}
-	case installer.SourceThirdParty:
-		if pkg.ThirdParty == nil || pkg.ThirdParty.URL == "" {
-			return []validationIssue{{cat, label, "third_party.url", "required for third_party"}}
 		}
 	}
 	return nil

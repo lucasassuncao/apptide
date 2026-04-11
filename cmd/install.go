@@ -40,10 +40,10 @@ var installCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(installCmd)
 	installCmd.Flags().StringVarP(&category, "category", "C", "", "process only this category")
-	installCmd.Flags().StringVarP(&source, "source", "s", "", "process only this source (winget, chocolatey, scoop, github, third_party)")
+	installCmd.Flags().StringVarP(&source, "source", "s", "", "process only this source (winget, chocolatey, scoop, github)")
 	installCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "simulate actions without executing anything")
 	installCmd.Flags().BoolVarP(&force, "force", "f", false, "force reinstall even if already up to date (no_upgrade: true in YAML takes priority)")
-	installCmd.Flags().StringVar(&installDir, "install-dir", "", `default dir for github/third_party binaries (default: %LOCALAPPDATA%\apptide\bin)`)
+	installCmd.Flags().StringVar(&installDir, "install-dir", "", `default dir for github binaries (default: %LOCALAPPDATA%\apptide\bin)`)
 	installCmd.Flags().BoolVar(&addToPath, "add-to-path", false, "add the install-dir to the user PATH if not already present")
 	installCmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub API token (or set $GITHUB_TOKEN)")
 }
