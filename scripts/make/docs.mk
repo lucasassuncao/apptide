@@ -3,9 +3,13 @@
 # there; it follows the same shape as the rest.
 .PHONY: docs
 
+# gomarkdoc picks files by the host's build tags, so on Linux it documented the
+# !windows stub instead of the real package. Inline, not a target-specific
+# export, which would leak into the go install that builds $(GOMARKDOC).
+
 docs: $(GOMARKDOC) ## Generate package documentation with gomarkdoc
 	@echo "Generating package docs..."
-	@$(GOMARKDOC) -e \
+	@GOOS=windows $(GOMARKDOC) -e \
 		--repository.url https://github.com/lucasassuncao/apptide \
 		--repository.default-branch main \
 		--repository.path / \

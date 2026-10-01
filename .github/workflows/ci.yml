@@ -66,18 +66,11 @@ jobs:
           fi
           echo "✅ Documentation is up to date."
 
-  # apptide only runs on Windows, so Windows is where its tests count: the
-  # elevation package is build-tagged windows and never compiles anywhere else,
-  # and every package manager it drives exists only there. Linux runs alongside
-  # it to catch anything that depends on a path separator or a case-insensitive
-  # filesystem without saying so.
+  # apptide only runs on Windows, and every package manager it drives exists
+  # only there, so that is the one platform its tests run on.
   test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
+    name: Test
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
@@ -95,8 +88,6 @@ jobs:
           path: .gobin
           key: gobin-${{ runner.os }}-${{ hashFiles('scripts/make/tools.mk') }}
 
-      # Lint and security run inside the matrix rather than once, so that any
-      # analysis sensitive to the host platform is not judged by Linux alone.
       - name: Lint
         run: make lint
 
@@ -109,7 +100,6 @@ jobs:
       # The Windows ARM64 build is published by goreleaser but compiled by no
       # other job here, so a break in the elevation package would ship.
       - name: Vet (windows/arm64)
-        if: matrix.os == 'windows-latest'
         env:
           GOOS: windows
           GOARCH: arm64
@@ -119,13 +109,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-${{ matrix.os }}
+          name: coverage
           path: coverage/
           if-no-files-found: warn
 
   # The SBOM and the vulnerability scan describe the dependency graph, which
-  # comes from go.mod and is the same everywhere, so this stays out of the OS
-  # matrix.
+  # comes from go.mod and is the same everywhere, so this runs on Linux.
   #
   # It is also its own job rather than a step inside Checks, because it fails
   # differently. A red mark here usually means a CVE was published against a

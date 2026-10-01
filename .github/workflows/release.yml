@@ -16,15 +16,16 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
 
+      # Same source as CI, so a release is built by the Go version CI tested.
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: "1.26.1"
+          go-version-file: 'go.mod'
           cache: true
 
       - name: Run GoReleaser
