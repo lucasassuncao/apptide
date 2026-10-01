@@ -11,9 +11,21 @@ import "github.com/lucasassuncao/apptide/internal/runner"
 ## Index
 
 - [func Export\(opts ExportOptions\) error](<#Export>)
+- [func RecordState\(st \*state.State, app config.Application, out Outcome, version string, action config.Action\)](<#RecordState>)
+- [func RunHook\(ctx context.Context, command string\) error](<#RunHook>)
 - [func Verify\(opts VerifyOptions\) error](<#Verify>)
 - [type ExportOptions](<#ExportOptions>)
+- [type InventoryProber](<#InventoryProber>)
+  - [func NewInventoryProber\(snap \*inventory.Snapshot, opts installer.Options\) InventoryProber](<#NewInventoryProber>)
+  - [func \(p InventoryProber\) Probe\(src config.Source, app config.Application\) \(bool, string\)](<#InventoryProber.Probe>)
 - [type Options](<#Options>)
+- [type Outcome](<#Outcome>)
+  - [func RunInstall\(ctx context.Context, app config.Application, res Resolution, opts installer.Options\) Outcome](<#RunInstall>)
+  - [func RunUninstall\(ctx context.Context, app config.Application, res Resolution, opts installer.Options\) Outcome](<#RunUninstall>)
+- [type Prober](<#Prober>)
+- [type Resolution](<#Resolution>)
+  - [func ResolveSource\(app config.Application, st \*state.State, probe Prober\) Resolution](<#ResolveSource>)
+- [type ResolutionKind](<#ResolutionKind>)
 - [type Runner](<#Runner>)
   - [func New\(opts Options\) \*Runner](<#New>)
   - [func \(r \*Runner\) Run\(\) error](<#Runner.Run>)
@@ -29,14 +41,34 @@ func Export(opts ExportOptions) error
 
 Export generates a packages.yaml from all installed packages detected by the available package managers \(winget, scoop, chocolatey\).
 
+<a name="RecordState"></a>
+## func [RecordState](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L241>)
+
+```go
+func RecordState(st *state.State, app config.Application, out Outcome, version string, action config.Action)
+```
+
+RecordState binds the application to the source that handled it, or clears the binding after an uninstall.
+
+<a name="RunHook"></a>
+## func [RunHook](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/tui.go#L304>)
+
+```go
+func RunHook(ctx context.Context, command string) error
+```
+
+RunHook executes a lifecycle hook via cmd /C.
+
+It takes a context so that Ctrl\+C stops a hook too: without one, cancelling a run left a pre\_install script running with nothing watching it. The output is attached to the error, because an exit code alone says nothing about what the script did.
+
 <a name="Verify"></a>
-## func [Verify](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/verifier.go#L28>)
+## func [Verify](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/verifier.go#L39>)
 
 ```go
 func Verify(opts VerifyOptions) error
 ```
 
-Verify checks which packages from the config are installed without making any changes.
+Verify checks which applications from the config are installed without making any changes.
 
 <a name="ExportOptions"></a>
 ## type [ExportOptions](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/exporter.go#L16-L18>)
@@ -49,28 +81,157 @@ type ExportOptions struct {
 }
 ```
 
-<a name="Options"></a>
-## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L28-L37>)
+<a name="InventoryProber"></a>
+## type [InventoryProber](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L62-L65>)
 
-Options configures a Runner.
+InventoryProber answers from a single inventory snapshot.
+
+Resolving sixty applications across four sources the slow way is up to two hundred and forty process launches before anything is installed, all to answer a question three calls to the managers already answer. The github source has no inventory, so it falls through to a filesystem check.
+
+```go
+type InventoryProber struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewInventoryProber"></a>
+### func [NewInventoryProber](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L69>)
+
+```go
+func NewInventoryProber(snap *inventory.Snapshot, opts installer.Options) InventoryProber
+```
+
+NewInventoryProber builds a prober backed by snap, falling back to the installers for sources the inventory cannot answer for.
+
+<a name="InventoryProber.Probe"></a>
+### func \(InventoryProber\) [Probe](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L73>)
+
+```go
+func (p InventoryProber) Probe(src config.Source, app config.Application) (bool, string)
+```
+
+
+
+<a name="Options"></a>
+## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L27-L38>)
+
+Options configures a Runner. Flag values win over the config's settings block; empty means "take whatever the file says".
 
 ```go
 type Options struct {
     ConfigPath  string
     Category    string
     Source      string
+    Tags        []string
     DryRun      bool
     Force       bool
     InstallDir  string
     AddToPath   bool
     GitHubToken string
+    StatePath   string
 }
 ```
 
-<a name="Runner"></a>
-## type [Runner](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L40-L42>)
+<a name="Outcome"></a>
+## type [Outcome](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L125-L129>)
 
-Runner orchestrates package installation across categories and sources.
+Outcome is the result of running an application through one or more sources.
+
+```go
+type Outcome struct {
+    Source   config.Source
+    Err      error
+    Attempts []state.Attempt
+}
+```
+
+<a name="RunInstall"></a>
+### func [RunInstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L147>)
+
+```go
+func RunInstall(ctx context.Context, app config.Application, res Resolution, opts installer.Options) Outcome
+```
+
+RunInstall installs app, walking the preference list when nothing is bound.
+
+Every kind of failure advances to the next source: a manager that does not offer the package, one that is not on the machine, and one that tried and failed. Listing several sources is a statement that any of them is acceptable, so falling through is the declared intent rather than a substitution — and the attempt chain is recorded and shown, so which one ended up installing is never hidden.
+
+Cancellation is the exception: it stops the chain, because the user asking to stop is not a reason to try somewhere else.
+
+<a name="RunUninstall"></a>
+### func [RunUninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L223>)
+
+```go
+func RunUninstall(ctx context.Context, app config.Application, res Resolution, opts installer.Options) Outcome
+```
+
+RunUninstall removes app through the source that installed it.
+
+<a name="Prober"></a>
+## type [Prober](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L40-L42>)
+
+Prober answers whether a source has an application installed. It exists so the TUI can answer from a single inventory snapshot instead of launching one process per application, which would take minutes for a full config.
+
+```go
+type Prober interface {
+    Probe(src config.Source, app config.Application) (installed bool, version string)
+}
+```
+
+<a name="Resolution"></a>
+## type [Resolution](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L31-L35>)
+
+Resolution is the outcome of deciding which source manages an application.
+
+```go
+type Resolution struct {
+    Kind      ResolutionKind
+    Source    config.Source
+    Conflicts []config.Source
+}
+```
+
+<a name="ResolveSource"></a>
+### func [ResolveSource](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L96>)
+
+```go
+func ResolveSource(app config.Application, st *state.State, probe Prober) Resolution
+```
+
+ResolveSource decides which source manages an application right now.
+
+A recorded binding always wins: the preference order in \`source:\` applies to the first installation only. Re\-deciding it on every run would uninstall and reinstall an application because a third\-party catalog gained the package, which is never what the user asked for.
+
+<a name="ResolutionKind"></a>
+## type [ResolutionKind](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/resolve.go#L15>)
+
+ResolutionKind is how a source was chosen for an application.
+
+```go
+type ResolutionKind uint8
+```
+
+<a name="ResolutionBound"></a>
+
+```go
+const (
+    // ResolutionBound: the state file records which source installed it.
+    ResolutionBound ResolutionKind = iota
+    // ResolutionDetected: no binding, but exactly one source reports it installed.
+    ResolutionDetected
+    // ResolutionFresh: nothing installed; the preference order applies.
+    ResolutionFresh
+    // ResolutionConflict: more than one source reports it installed.
+    ResolutionConflict
+    // ResolutionNoSource: the application declares no usable source.
+    ResolutionNoSource
+)
+```
+
+<a name="Runner"></a>
+## type [Runner](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L58-L60>)
+
+Runner orchestrates application installation across categories and sources.
 
 ```go
 type Runner struct {
@@ -79,7 +240,7 @@ type Runner struct {
 ```
 
 <a name="New"></a>
-### func [New](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L44>)
+### func [New](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L62>)
 
 ```go
 func New(opts Options) *Runner
@@ -88,16 +249,16 @@ func New(opts Options) *Runner
 
 
 <a name="Runner.Run"></a>
-### func \(\*Runner\) [Run](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L47>)
+### func \(\*Runner\) [Run](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/runner.go#L65>)
 
 ```go
 func (r *Runner) Run() error
 ```
 
-Run loads the config and processes all matching packages via the TUI.
+Run loads the config and processes all matching applications via the TUI.
 
 <a name="VerifyOptions"></a>
-## type [VerifyOptions](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/verifier.go#L19-L25>)
+## type [VerifyOptions](<https://github.com/lucasassuncao/apptide/blob/main/internal/runner/verifier.go#L17-L25>)
 
 VerifyOptions configures a verification run.
 
@@ -106,8 +267,10 @@ type VerifyOptions struct {
     ConfigPath  string
     Category    string
     Source      string
+    Tags        []string
     InstallDir  string
     GitHubToken string
+    StatePath   string
 }
 ```
 

@@ -1,15 +1,15 @@
 package runner
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"strings"
+	"sort"
 	"time"
 
-	"github.com/lucasassuncao/apptide/internal/installer"
+	"github.com/lucasassuncao/apptide/internal/config"
+	"github.com/lucasassuncao/apptide/internal/inventory"
 )
 
 // ExportOptions configures the export command.
@@ -30,30 +30,33 @@ func Export(opts ExportOptions) error {
 		out = f
 	}
 
+	snap := inventory.Installed(context.Background())
+
 	fmt.Fprintf(out, "# Exported by apptide on %s\n", time.Now().Format("2006-01-02"))
 	fmt.Fprintf(out, "# Run: apptide install --config <this-file>\n\n")
+	fmt.Fprintf(out, "schema_version: %d\n\napplications:\n", config.SchemaVersion)
 
 	any := false
-
-	if pkgs, err := exportWinget(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s⚠ winget export skipped: %v%s\n", yellow, err, reset)
-	} else if len(pkgs) > 0 {
-		any = true
-		writeCategory(out, "Winget", pkgs)
+	// Category names mirror the manager, since a raw export has no better
+	// grouping to offer.
+	categories := map[config.Source]string{
+		config.SourceWinget:     "Winget",
+		config.SourceScoop:      "Scoop",
+		config.SourceChocolatey: "Chocolatey",
 	}
 
-	if pkgs, err := exportScoop(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s⚠ scoop export skipped: %v%s\n", yellow, err, reset)
-	} else if len(pkgs) > 0 {
+	for _, src := range []config.Source{config.SourceWinget, config.SourceScoop, config.SourceChocolatey} {
+		if err := snap.Err(src); err != nil {
+			fmt.Fprintln(os.Stderr, lgYellow.Render(fmt.Sprintf("⚠ %s export skipped: %v", src, err)))
+			continue
+		}
+		entries := snap.All(src)
+		if len(entries) == 0 {
+			continue
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 		any = true
-		writeCategory(out, "Scoop", pkgs)
-	}
-
-	if pkgs, err := exportChocolatey(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s⚠ chocolatey export skipped: %v%s\n", yellow, err, reset)
-	} else if len(pkgs) > 0 {
-		any = true
-		writeCategory(out, "Chocolatey", pkgs)
+		writeCategory(out, categories[src], src, entries)
 	}
 
 	if !any {
@@ -61,154 +64,24 @@ func Export(opts ExportOptions) error {
 	}
 
 	if opts.Output != "" {
-		fmt.Printf("%s✓%s written to %s\n", green, reset, opts.Output)
+		fmt.Printf("%s written to %s\n", lgGreen.Render("✓"), opts.Output)
 	}
 	return nil
 }
 
-// exportEntry is a minimal representation used while building the YAML output.
-type exportEntry struct {
-	name    string
-	source  string
-	id      string
-	version string
-}
-
-// writeCategory writes a YAML category block to w.
-func writeCategory(w io.Writer, category string, pkgs []exportEntry) {
-	fmt.Fprintf(w, "%s:\n", category)
-	for _, p := range pkgs {
-		fmt.Fprintf(w, "  - name: %q\n", p.name)
-		fmt.Fprintf(w, "    source: %s\n", p.source)
-		if p.version != "" && p.version != "Unknown" {
-			fmt.Fprintf(w, "    version: %q\n", p.version)
+// writeCategory writes the applications of one manager in v2 layout.
+// The exported version is the one currently installed, which pins the
+// application; users who want to track latest should drop the field.
+func writeCategory(w io.Writer, category string, src config.Source, entries []inventory.Entry) {
+	for _, e := range entries {
+		fmt.Fprintf(w, "  - name: %q\n", e.ID)
+		fmt.Fprintf(w, "    category: %s\n", category)
+		fmt.Fprintf(w, "    source: %s\n", src)
+		if e.Version != "" && e.Version != "Unknown" {
+			fmt.Fprintf(w, "    version: %q\n", e.Version)
 		}
-		fmt.Fprintf(w, "    action: install\n")
-		fmt.Fprintf(w, "    %s:\n", p.source)
-		fmt.Fprintf(w, "      id: %q\n\n", p.id)
+		fmt.Fprintf(w, "    package:\n")
+		fmt.Fprintf(w, "      %s:\n", src)
+		fmt.Fprintf(w, "        id: %q\n\n", e.ID)
 	}
-}
-
-// ── winget ───────────────────────────────────────────────────────────────────
-
-type wingetExportFile struct {
-	Sources []struct {
-		Packages []struct {
-			PackageIdentifier string `json:"PackageIdentifier"`
-			Version           string `json:"Version"`
-		} `json:"Packages"`
-	} `json:"Sources"`
-}
-
-func exportWinget() ([]exportEntry, error) {
-	if _, err := exec.LookPath("winget"); err != nil {
-		return nil, fmt.Errorf("winget not in PATH")
-	}
-
-	tmp, err := os.CreateTemp("", "apptide-winget-*.json")
-	if err != nil {
-		return nil, err
-	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
-
-	out, err := exec.Command("winget", "export", "--output", tmp.Name(), "--accept-source-agreements").CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("winget export: %s", strings.TrimSpace(string(out)))
-	}
-
-	data, err := os.ReadFile(tmp.Name())
-	if err != nil {
-		return nil, err
-	}
-
-	var export wingetExportFile
-	if err := json.Unmarshal(data, &export); err != nil {
-		return nil, fmt.Errorf("parsing winget export JSON: %w", err)
-	}
-
-	var result []exportEntry
-	for _, src := range export.Sources {
-		for _, pkg := range src.Packages {
-			result = append(result, exportEntry{
-				name:    pkg.PackageIdentifier,
-				source:  installer.SourceWinget,
-				id:      pkg.PackageIdentifier,
-				version: pkg.Version,
-			})
-		}
-	}
-	return result, nil
-}
-
-// ── scoop ────────────────────────────────────────────────────────────────────
-
-type scoopExportFile struct {
-	Apps []struct {
-		Name    string `json:"Name"`
-		Version string `json:"Version"`
-	} `json:"apps"`
-}
-
-func exportScoop() ([]exportEntry, error) {
-	if _, err := exec.LookPath("scoop"); err != nil {
-		return nil, fmt.Errorf("scoop not in PATH")
-	}
-
-	// scoop export outputs JSON to stdout
-	out, err := exec.Command("scoop", "export").Output()
-	if err != nil {
-		return nil, fmt.Errorf("scoop export: %w", err)
-	}
-
-	var export scoopExportFile
-	if err := json.Unmarshal(out, &export); err != nil {
-		return nil, fmt.Errorf("parsing scoop export JSON: %w", err)
-	}
-
-	var result []exportEntry
-	for _, app := range export.Apps {
-		result = append(result, exportEntry{
-			name:    app.Name,
-			source:  installer.SourceScoop,
-			id:      app.Name,
-			version: app.Version,
-		})
-	}
-	return result, nil
-}
-
-// ── chocolatey ───────────────────────────────────────────────────────────────
-
-func exportChocolatey() ([]exportEntry, error) {
-	if _, err := exec.LookPath("choco"); err != nil {
-		return nil, fmt.Errorf("choco not in PATH")
-	}
-
-	// --limit-output: pipe-separated "id|version" lines, no headers
-	out, err := exec.Command("choco", "list", "--local-only", "--limit-output").Output()
-	if err != nil {
-		return nil, fmt.Errorf("choco list: %w", err)
-	}
-
-	var result []exportEntry
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 2)
-		id := parts[0]
-		version := ""
-		if len(parts) == 2 {
-			version = parts[1]
-		}
-		result = append(result, exportEntry{
-			name:    id,
-			source:  installer.SourceChocolatey,
-			id:      id,
-			version: version,
-		})
-	}
-	return result, nil
 }

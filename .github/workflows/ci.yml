@@ -5,29 +5,36 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  ci:
+  # Repository hygiene, which is platform-independent and only worth doing once:
+  # formatting, dependency tidiness and the generated package docs. The
+  # git-diff comparisons these rely on would only produce line-ending noise on
+  # Windows.
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: "1.26.1"
+          go-version-file: 'go.mod'
           cache: true
 
-      - name: Check formatting
-        run: |
-          make fmt
-          if ! git diff --exit-code; then
-            echo ""
-            echo "❌ Code is not formatted. Run 'make fmt' locally and commit the result."
-            exit 1
-          fi
-          echo "✅ Code is properly formatted."
+      # The Makefile builds its tools into .gobin; without this every job
+      # rebuilds them from source. Keyed on tools.mk, where they are pinned:
+      # keyed on the Makefile, a version bump would never miss the cache and CI
+      # would keep running the old tool.
+      - name: Cache pinned tools
+        uses: actions/cache@v6
+        with:
+          path: .gobin
+          key: gobin-${{ runner.os }}-${{ hashFiles('scripts/make/tools.mk') }}
 
       - name: Check dependencies
         run: |
@@ -39,11 +46,15 @@ jobs:
           fi
           echo "✅ Dependencies are up to date."
 
-      - name: Test
-        run: make test
-
-      - name: Lint
-        run: make lint
+      - name: Check formatting
+        run: |
+          make fmt
+          if ! git diff --exit-code; then
+            echo ""
+            echo "❌ Code is not formatted. Run 'make fmt' locally and commit the result."
+            exit 1
+          fi
+          echo "✅ Code is properly formatted."
 
       - name: Check docs
         run: |
@@ -54,3 +65,109 @@ jobs:
             exit 1
           fi
           echo "✅ Documentation is up to date."
+
+  # apptide only runs on Windows, so Windows is where its tests count: the
+  # elevation package is build-tagged windows and never compiles anywhere else,
+  # and every package manager it drives exists only there. Linux runs alongside
+  # it to catch anything that depends on a path separator or a case-insensitive
+  # filesystem without saying so.
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Cache pinned tools
+        uses: actions/cache@v6
+        with:
+          path: .gobin
+          key: gobin-${{ runner.os }}-${{ hashFiles('scripts/make/tools.mk') }}
+
+      # Lint and security run inside the matrix rather than once, so that any
+      # analysis sensitive to the host platform is not judged by Linux alone.
+      - name: Lint
+        run: make lint
+
+      - name: Security
+        run: make security
+
+      - name: Test
+        run: make test-coverage
+
+      # The Windows ARM64 build is published by goreleaser but compiled by no
+      # other job here, so a break in the elevation package would ship.
+      - name: Vet (windows/arm64)
+        if: matrix.os == 'windows-latest'
+        env:
+          GOOS: windows
+          GOARCH: arm64
+        run: go vet ./...
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage/
+          if-no-files-found: warn
+
+  # The SBOM and the vulnerability scan describe the dependency graph, which
+  # comes from go.mod and is the same everywhere, so this stays out of the OS
+  # matrix.
+  #
+  # It is also its own job rather than a step inside Checks, because it fails
+  # differently. A red mark here usually means a CVE was published against a
+  # dependency, not that the commit broke something: the job can go red with
+  # nothing in the repo having changed.
+  supply-chain:
+    name: Supply chain
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      # syft and grype are slow to build for a scan that takes seconds.
+      - name: Cache pinned tools
+        uses: actions/cache@v6
+        with:
+          path: .gobin
+          key: gobin-${{ runner.os }}-${{ hashFiles('scripts/make/tools.mk') }}
+
+      # govulncheck is the gate that matters for a Go binary: it only reports
+      # advisories reachable from this module's code. It runs before the SBOM
+      # scan so its answer is in the log even when grype fails the job on an
+      # advisory nothing here can execute.
+      - name: Check reachable vulnerabilities
+        run: make govulncheck
+
+      - name: Scan dependencies
+        run: make vuln
+
+      # Uploaded even when the scan fails: the SBOM is written before grype
+      # runs, and it is what you need to triage the findings.
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom.json
+          if-no-files-found: warn

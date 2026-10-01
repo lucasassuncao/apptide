@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,15 +63,6 @@ var managers = []managerInfo{
 	},
 }
 
-const (
-	doctorReset  = "\033[0m"
-	doctorBold   = "\033[1m"
-	doctorRed    = "\033[31m"
-	doctorGreen  = "\033[32m"
-	doctorYellow = "\033[33m"
-	doctorGray   = "\033[90m"
-)
-
 var doctorInstallMissing bool
 
 var doctorCmd = &cobra.Command{
@@ -78,11 +70,13 @@ var doctorCmd = &cobra.Command{
 	Short: "Check whether all supported package managers are installed and working",
 	Example: `  apptide doctor
   apptide doctor --install-missing`,
-	Run: func(cmd *cobra.Command, args []string) {
-		ok := runDoctor()
-		if !ok {
-			os.Exit(1)
+	// RunE, not Run with os.Exit: exiting from inside the command skips the
+	// deferred cleanup every other path relies on.
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !runDoctor() {
+			return errors.New("one or more checks failed")
 		}
+		return nil
 	},
 }
 
@@ -107,58 +101,55 @@ func runDoctor() bool {
 func runDoctorTable() bool {
 	allOK := true
 
-	fmt.Printf("\n%s%s[Package Managers]%s\n", doctorBold, doctorYellow, doctorReset)
+	section := th.Warning.Bold(true)
+	fmt.Println("\n" + section.Render("[Package Managers]"))
 
 	for _, m := range managers {
 		path, err := exec.LookPath(m.binary)
 		if err != nil {
 			allOK = false
-			fmt.Printf("  %s✗%s  %-14s %snot found%s\n", doctorRed, doctorReset, m.name, doctorGray, doctorReset)
+			fmt.Printf("  %s  %-14s %s\n", th.Danger.Render("✗"), m.name, th.Dim.Render("not found"))
 			printMissingHint(m, &allOK)
 			continue
 		}
 
 		version := getVersion(path, m.versionArg, m.versionPattern)
-		fmt.Printf("  %s✓%s  %-14s %s%s%s  %s%s%s\n",
-			doctorGreen, doctorReset,
-			m.name,
-			doctorGreen, version, doctorReset,
-			doctorGray, path, doctorReset,
-		)
+		fmt.Printf("  %s  %-14s %s  %s\n",
+			th.Success.Render("✓"), m.name, th.Success.Render(version), th.Dim.Render(path))
 	}
 
 	// ── Self-update repo ────────────────────────────────────────────────────
-	fmt.Printf("\n%s%s[Self-update]%s\n", doctorBold, doctorYellow, doctorReset)
+	fmt.Println("\n" + section.Render("[Self-update]"))
 	if repo := DefaultRepo; repo != "" {
-		fmt.Printf("  %s✓%s  repo  %s\n", doctorGreen, doctorReset, repo)
+		fmt.Printf("  %s  repo  %s\n", th.Success.Render("✓"), repo)
 	} else {
-		fmt.Printf("  %s-%s  %srepo not set%s — self-update requires --repo flag\n",
-			doctorGray, doctorReset, doctorGray, doctorReset)
+		fmt.Printf("  %s  %s — self-update requires --repo flag\n",
+			th.Dim.Render("-"), th.Dim.Render("repo not set"))
 	}
 
 	fmt.Println()
 	if allOK {
-		fmt.Printf("%s✓ Everything looks good!%s\n\n", doctorGreen, doctorReset)
+		fmt.Println(th.Success.Render("✓ Everything looks good!") + "\n")
 	} else {
-		fmt.Printf("%s⚠ Some issues found. See suggestions above.%s\n\n", doctorYellow, doctorReset)
+		fmt.Println(th.Warning.Render("⚠ Some issues found. See suggestions above.") + "\n")
 	}
 	return allOK
 }
 
 func printMissingHint(m managerInfo, allOK *bool) {
 	if !doctorInstallMissing {
-		fmt.Printf("       %s↳ %s%s\n\n", doctorGray, m.installHow, doctorReset)
+		fmt.Printf("       %s\n\n", th.Dim.Render("↳ "+m.installHow))
 		return
 	}
 	if m.installArgs == nil {
-		fmt.Printf("       %s↳ cannot auto-install: %s%s\n\n", doctorGray, m.installHow, doctorReset)
+		fmt.Printf("       %s\n\n", th.Dim.Render("↳ cannot auto-install: "+m.installHow))
 		return
 	}
-	fmt.Printf("       %s↳ installing %s…%s\n", doctorGray, m.name, doctorReset)
+	fmt.Printf("       %s\n", th.Dim.Render("↳ installing "+m.name+"…"))
 	if err := runInstall(m); err != nil {
-		fmt.Printf("       %s✗ install failed: %v%s\n\n", doctorRed, err, doctorReset)
+		fmt.Printf("       %s\n\n", th.Danger.Render(fmt.Sprintf("✗ install failed: %v", err)))
 	} else {
-		fmt.Printf("       %s✓ installed successfully%s\n\n", doctorGreen, doctorReset)
+		fmt.Printf("       %s\n\n", th.Success.Render("✓ installed successfully"))
 		*allOK = true
 	}
 }
@@ -200,7 +191,7 @@ func runDoctorJSON(binDir string) bool {
 		})
 	}
 
-	_, statErr := os.Stat(binDir)
+	_, statErr := os.Stat(binDir) //#nosec G703 -- binDir is built from %LOCALAPPDATA%, and this only stats it
 	inPath := pathutil.IsInUserPath(binDir)
 	if !inPath {
 		allOK = false
@@ -213,7 +204,9 @@ func runDoctorJSON(binDir string) bool {
 			InstallDirExist: statErr == nil,
 			InPath:          inPath,
 		},
-		UpdaterRepo: os.Getenv("UPDATER_REPO"),
+		// The same source the table reports. This read $UPDATER_REPO, a name
+		// that appears nowhere else in apptide, so the field was always empty.
+		UpdaterRepo: DefaultRepo,
 		AllOK:       allOK,
 	})
 	return allOK
@@ -221,7 +214,7 @@ func runDoctorJSON(binDir string) bool {
 
 // runInstall executes the install command for a package manager, streaming output to stdout.
 func runInstall(m managerInfo) error {
-	cmd := exec.Command(m.installArgs[0], m.installArgs[1:]...)
+	cmd := exec.Command(m.installArgs[0], m.installArgs[1:]...) //#nosec G204 -- installArgs is a constant in this file, not user input
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -231,7 +224,7 @@ func runInstall(m managerInfo) error {
 // If pattern is non-empty, it extracts the first capture group from the output.
 // Otherwise, it returns the first non-empty line.
 func getVersion(binary, arg, pattern string) string {
-	out, err := exec.Command(binary, arg).Output()
+	out, err := exec.Command(binary, arg).Output() //#nosec G204 -- binary comes from exec.LookPath, arg is a constant in this file
 	if err != nil {
 		return "unknown"
 	}

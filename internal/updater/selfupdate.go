@@ -2,21 +2,19 @@
 package updater
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/lucasassuncao/apptide/internal/ghrelease"
+	"github.com/lucasassuncao/bezel/theme"
 )
 
-const (
-	reset  = "\033[0m"
-	green  = "\033[32m"
-	yellow = "\033[33m"
-	gray   = "\033[90m"
-)
+// th is the terminal palette the rest of apptide prints with.
+var th = theme.Resolve(theme.ThemeTerminal, true)
 
 // SelfUpdate downloads the latest release of apptide from GitHub and
 // replaces the current binary. The old binary is kept as <name>.old until the
@@ -25,7 +23,7 @@ const (
 // repo must be in "owner/repo" format, e.g. "lucasassuncao/apptide".
 // currentVersion is the running binary's version (e.g. "1.2.3" or "v1.2.3");
 // the update is skipped when it matches the latest release tag.
-func SelfUpdate(repo, token, currentVersion string) error {
+func SelfUpdate(ctx context.Context, repo, token, currentVersion string) error {
 	if repo == "" {
 		return fmt.Errorf("--repo is required (e.g. --repo lucasassuncao/apptide)")
 	}
@@ -33,9 +31,11 @@ func SelfUpdate(repo, token, currentVersion string) error {
 	// Clean up any leftover .old binary from a previous update.
 	cleanOldBinary()
 
+	client := ghrelease.NewClient(token)
+
 	fmt.Printf("Checking latest release of %s...\n", repo)
 
-	rel, err := fetchLatestRelease(repo, token)
+	rel, err := client.Latest(ctx, repo)
 	if err != nil {
 		return err
 	}
@@ -48,10 +48,10 @@ func SelfUpdate(repo, token, currentVersion string) error {
 
 	asset := selectWindowsAsset(rel.Assets)
 	if asset == nil {
-		return fmt.Errorf("no Windows amd64 binary found in release %s", rel.TagName)
+		return fmt.Errorf("no Windows %s binary found in release %s", runtime.GOARCH, rel.TagName)
 	}
 
-	fmt.Printf("Found %s%s%s → %s (%.1f MB)\n", green, rel.TagName, reset, asset.Name, float64(asset.Size)/1e6)
+	fmt.Printf("Found %s → %s (%.1f MB)\n", th.Success.Render(rel.TagName), asset.Name, float64(asset.Size)/1e6)
 
 	exePath, err := os.Executable()
 	if err != nil {
@@ -65,7 +65,15 @@ func SelfUpdate(repo, token, currentVersion string) error {
 
 	fmt.Printf("Downloading new binary...\n")
 	tmpPath := exePath + ".new"
-	if err := download(asset.BrowserDownloadURL, tmpPath, token); err != nil {
+	if err := client.Download(ctx, *asset, tmpPath); err != nil {
+		return err
+	}
+
+	// Verify before the swap. This is the one download whose contents become
+	// the program the user runs next, so an unverified byte here is worse than
+	// anywhere else in apptide.
+	if err := verifyDownload(ctx, client, tmpPath, *asset, rel.Assets); err != nil {
+		os.Remove(tmpPath)
 		return err
 	}
 
@@ -85,8 +93,8 @@ func SelfUpdate(repo, token, currentVersion string) error {
 		return fmt.Errorf("installing new binary: %w", err)
 	}
 
-	fmt.Printf("%s✓ Updated to %s%s  (old binary saved as %s.old)\n",
-		green, rel.TagName, reset, filepath.Base(exePath))
+	fmt.Printf("%s  (old binary saved as %s.old)\n",
+		th.Success.Render("✓ Updated to "+rel.TagName), filepath.Base(exePath))
 	return nil
 }
 
@@ -112,138 +120,48 @@ func normalizeVersion(v string) string {
 	return strings.TrimPrefix(v, "v")
 }
 
-// ── GitHub API ────────────────────────────────────────────────────────────────
-
-type ghRelease struct {
-	TagName string    `json:"tag_name"`
-	Assets  []ghAsset `json:"assets"`
-}
-
-type ghAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-	Size               int64  `json:"size"`
-}
-
-func fetchLatestRelease(repo, token string) (*ghRelease, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("User-Agent", "github.com/lucasassuncao/apptide/1.0")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("github api: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("no releases found for %s", repo)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("github api returned %d", resp.StatusCode)
-	}
-
-	var rel ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return nil, fmt.Errorf("decoding release: %w", err)
-	}
-	return &rel, nil
-}
-
-// selectWindowsAsset picks the best asset for Windows amd64.
-// Prefers .exe directly; falls back to any non-excluded file with Windows indicators.
-func selectWindowsAsset(assets []ghAsset) *ghAsset {
-	// Exclusion suffixes
-	skip := []string{".sha256", ".sha512", ".sig", ".asc", "checksums", ".txt", "linux", "darwin", "macos"}
-
-	type scored struct {
-		a     *ghAsset
-		score int
-	}
-	var candidates []scored
-
-	for i := range assets {
-		lower := strings.ToLower(assets[i].Name)
-		excluded := false
-		for _, s := range skip {
-			if strings.Contains(lower, s) {
-				excluded = true
-				break
-			}
-		}
-		if excluded {
-			continue
-		}
-
-		score := 0
-		for _, w := range []string{"windows", "win64", "win32"} {
-			if strings.Contains(lower, w) {
-				score += 5
-				break
-			}
-		}
-		for _, a := range []string{"amd64", "x86_64", "x64"} {
-			if strings.Contains(lower, a) {
-				score += 3
-				break
-			}
-		}
-		if filepath.Ext(lower) == ".exe" {
-			score += 2
-		}
-		candidates = append(candidates, scored{&assets[i], score})
-	}
-
-	if len(candidates) == 0 {
+// verifyDownload checks the new binary against the release's checksum file.
+//
+// A release without checksums is accepted with a warning rather than refused:
+// older apptide releases published none, and refusing to update away from a
+// buggy version would be worse than the risk. Releases built by the current
+// goreleaser config always carry one.
+func verifyDownload(ctx context.Context, c *ghrelease.Client, path string, asset ghrelease.Asset, all []ghrelease.Asset) error {
+	want, ok := c.ChecksumFor(ctx, all, asset.Name)
+	if !ok {
+		fmt.Printf("%s release publishes no checksums; cannot verify the download\n", th.Warning.Render("warn:"))
 		return nil
 	}
-	best := candidates[0]
-	for _, c := range candidates[1:] {
-		if c.score > best.score {
-			best = c
-		}
+	if err := ghrelease.VerifySHA256(path, want); err != nil {
+		return fmt.Errorf("refusing to install %s: %w", asset.Name, err)
 	}
-	return best.a
+	fmt.Printf("%s checksum verified\n", th.Success.Render("✓"))
+	return nil
 }
 
-// download fetches url into destPath.
-func download(url, destPath, token string) error {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "github.com/lucasassuncao/apptide/1.0")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
+// selectWindowsAsset picks the best apptide binary for this machine.
+//
+// The architecture is not hard-coded: apptide ships windows/amd64 and
+// windows/arm64, and scoring only amd64 meant an ARM machine updated itself
+// into the emulated x64 build every time.
+func selectWindowsAsset(assets []ghrelease.Asset) *ghrelease.Asset {
+	return selectWindowsAssetFor(assets, runtime.GOARCH)
+}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("downloading: %w", err)
-	}
-	defer resp.Body.Close()
+func selectWindowsAssetFor(assets []ghrelease.Asset, goarch string) *ghrelease.Asset {
+	var best *ghrelease.Asset
+	bestScore := 0
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned HTTP %d", resp.StatusCode)
+	for i := range assets {
+		score := ghrelease.ScoreBinary(assets[i].Name, goarch)
+		if score == 0 {
+			continue
+		}
+		// Strictly greater: the first asset of a tied score wins, so the same
+		// release always resolves to the same binary.
+		if score > bestScore {
+			best, bestScore = &assets[i], score
+		}
 	}
-
-	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-	if err != nil {
-		return fmt.Errorf("creating temp binary: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		os.Remove(destPath)
-		return fmt.Errorf("writing binary: %w", err)
-	}
-	return nil
+	return best
 }

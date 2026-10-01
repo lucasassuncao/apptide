@@ -11,10 +11,54 @@ import "github.com/lucasassuncao/apptide/cmd"
 ## Index
 
 - [Variables](<#variables>)
+- [func DefaultConfigPath\(\) string](<#DefaultConfigPath>)
 - [func Execute\(\)](<#Execute>)
 
 
 ## Variables
+
+<a name="AppTideBlockPresets"></a>AppTideBlockPresets feeds the preset picker inside the block editors \(p on a block\): one preset set per top\-level block.
+
+Every preset is a Go value of the schema type, marshaled on demand, so a preset cannot name a field the config does not have — a hand\-written YAML snippet could, and would only fail once a user inserted it.
+
+```go
+var AppTideBlockPresets = presets.Combine(
+    presets.ForField("settings", settingsPresets()),
+    presets.ForField("defaults", defaultsPresets()),
+    presets.ForField("applications", applicationPresets()),
+)
+```
+
+<a name="AppTideDocPresets"></a>AppTideDocPresets is the whole\-document picker on the root list \(p\), backed by the same templates \`apptide init \-\-template\` writes, so the picker and init can never offer different starting points.
+
+```go
+var AppTideDocPresets presets.Source = docPresets{}
+```
+
+<a name="AppTideValidators"></a>AppTideValidators is the rule set the edit command enforces on save.
+
+Per\-field constraints \(required, allowed values, patterns, counts\) are declared once in internal/config/metadata.go and enforced by the FromMetadata family, so the hint panel and the save\-time rules cannot disagree. Only cross\-field rules live here.
+
+```go
+var AppTideValidators = []spec.Validator{
+    validate.RequiredFromMetadata(),
+    validate.OneOfFromMetadata(),
+    validate.PatternFromMetadata(),
+    validate.CountFromMetadata(),
+    validate.UniqueFromMetadata(),
+    validate.FormatFromMetadata(),
+
+    validate.NoDuplicates("applications", "name"),
+
+    spec.ValidatorFunc(validateSourceBlocks),
+}
+```
+
+<a name="DefaultRepo"></a>DefaultRepo is set at build time via ldflags.
+
+```go
+var DefaultRepo = ""
+```
 
 <a name="Version"></a>Version is set at build time via:
 
@@ -26,8 +70,17 @@ go build -ldflags "-X github.com/lucasassuncao/apptide/cmd.Version=v1.0.0"
 var Version = "dev"
 ```
 
+<a name="DefaultConfigPath"></a>
+## func [DefaultConfigPath](<https://github.com/lucasassuncao/apptide/blob/main/cmd/root.go#L104>)
+
+```go
+func DefaultConfigPath() string
+```
+
+DefaultConfigPath reports where a config would be read from right now. Commands that write a config use it so init and install agree.
+
 <a name="Execute"></a>
-## func [Execute](<https://github.com/lucasassuncao/apptide/blob/main/cmd/root.go#L23>)
+## func [Execute](<https://github.com/lucasassuncao/apptide/blob/main/cmd/root.go#L48>)
 
 ```go
 func Execute()

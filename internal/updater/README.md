@@ -13,11 +13,11 @@ Package updater implements the self\-update mechanism for apptide.
 ## Index
 
 - [func CleanOldBinary\(\)](<#CleanOldBinary>)
-- [func SelfUpdate\(repo, token, currentVersion string\) error](<#SelfUpdate>)
+- [func SelfUpdate\(ctx context.Context, repo, token, currentVersion string\) error](<#SelfUpdate>)
 
 
 <a name="CleanOldBinary"></a>
-## func [CleanOldBinary](<https://github.com/lucasassuncao/apptide/blob/main/internal/updater/selfupdate.go#L95>)
+## func [CleanOldBinary](<https://github.com/lucasassuncao/apptide/blob/main/internal/updater/selfupdate.go#L103>)
 
 ```go
 func CleanOldBinary()
@@ -26,10 +26,10 @@ func CleanOldBinary()
 CleanOldBinary removes a \<exe\>.old file left by a previous self\-update. Call this from main\(\) at startup.
 
 <a name="SelfUpdate"></a>
-## func [SelfUpdate](<https://github.com/lucasassuncao/apptide/blob/main/internal/updater/selfupdate.go#L28>)
+## func [SelfUpdate](<https://github.com/lucasassuncao/apptide/blob/main/internal/updater/selfupdate.go#L26>)
 
 ```go
-func SelfUpdate(repo, token, currentVersion string) error
+func SelfUpdate(ctx context.Context, repo, token, currentVersion string) error
 ```
 
 SelfUpdate downloads the latest release of apptide from GitHub and replaces the current binary. The old binary is kept as \<name\>.old until the next run, when it is cleaned up automatically.

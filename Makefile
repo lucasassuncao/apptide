@@ -1,72 +1,71 @@
-.PHONY: help build build-all release tag install fmt lint test test-coverage deps docs run clean
+# Targets live in scripts/make/*.mk, one file per area. Variables shared by
+# those files are defined here, above the includes: `:=` expands as the line is
+# read, so EXE and GOBIN_DIR must already exist when tools.mk builds its paths.
+#
+# Include order matters for the same reason. tools.mk comes first because the
+# others name $(GOLANGCI), $(GOTESTSUM) and friends as prerequisites, and a
+# prerequisite is expanded when its rule is read.
 
-# Tool versions
-GOLANGCI_LINT_VERSION := v2.5.0
-GOMARKDOC_VERSION := latest
+# The includes are read before any target of this file, so the first target make
+# sees is one of tools.mk's. Without this, that becomes the default goal.
+.DEFAULT_GOAL := help
 
-# Tools invoked via `go run` — no global install required
-GORELEASER  := go run github.com/goreleaser/goreleaser/v2@latest
-GOLANGCI    := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-GOMARKDOC   := go run github.com/princjef/gomarkdoc/cmd/gomarkdoc@$(GOMARKDOC_VERSION)
+ifeq ($(OS),Windows_NT)
+EXE := .exe
+else
+EXE :=
+endif
 
 # Project variables
 BINARY_NAME := apptide
-BUILD_DIR := bin
-MAIN_PATH := main.go
+BUILD_DIR   := bin
+MAIN_PATH   := main.go
+SBOM_FILE   := sbom.json
 
+# Where the pinned tools land; tools.mk explains why they are not taken from PATH.
+GOBIN_DIR := $(CURDIR)/.gobin
+
+# Coverage
+COVERAGE_DIR  := coverage
+COVERAGE_OUT  := $(COVERAGE_DIR)/coverage.out
+COVERAGE_HTML := $(COVERAGE_DIR)/coverage.html
+COVERAGE_XML  := $(COVERAGE_DIR)/coverage.xml
+
+MAKE_DIR := scripts/make
+
+include $(MAKE_DIR)/tools.mk
+include $(MAKE_DIR)/go.mk
+include $(MAKE_DIR)/build.mk
+include $(MAKE_DIR)/test.mk
+include $(MAKE_DIR)/docs.mk
+include $(MAKE_DIR)/security.mk
+
+.PHONY: help all clean-all
+
+# make appends every included file to MAKEFILE_LIST, so help still sees every
+# target in every .mk. Two scripts because neither shell is guaranteed to exist
+# on the other's platform.
 help: ## Show this help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $1, $2}'
-
-build: ## Build binary with goreleaser (current platform only)
-	@echo "Building..."
-	@$(GORELEASER) build --skip=validate --single-target --snapshot --clean
-
-build-all: ## Build binaries for all platforms
-	@echo "Building for all platforms..."
-	@$(GORELEASER) build --skip=validate --snapshot --clean
-
-release: ## Create a release with goreleaser
-	@echo "Creating release..."
-	@$(GORELEASER) release --timeout 360s
-
-tag: ## Create and push an annotated git tag (usage: make tag VERSION=v1.2.3)
-ifndef VERSION
-	$(error Usage: make tag VERSION=v1.2.3)
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File $(MAKE_DIR)/help.ps1 $(MAKEFILE_LIST)
+else
+	@sh $(MAKE_DIR)/help.sh $(MAKEFILE_LIST)
 endif
-	git diff --exit-code --quiet
-	git tag -a $(VERSION) -m "Release $(VERSION)"
-	git push origin $(VERSION)
 
-install: ## Install binary globally
-	@go install
+# Local, deterministic checks first, so a failure points at the code. The
+# supply-chain scans go last because they are the only steps that need the
+# network: govulncheck and grype both fetch a vulnerability database, and a
+# hiccup there should not mask a lint or test failure. govulncheck runs before
+# grype so the reachability answer is printed even when grype fails the build
+# on an advisory this binary never executes.
+all: deps fmt lint security test-coverage govulncheck sbom vuln
 
-fmt: ## Format code
-	@go fmt ./...
-
-lint: ## Run linter checks
-	@$(GOLANGCI) -v run ./...
-
-test: ## Run tests
-	@go test -v ./...
-
-test-coverage: ## Run tests with coverage report
-	@go test -v -coverprofile=coverage.out ./...
-	@go tool cover -html=coverage.out
-
-deps: ## Download and tidy dependencies
-	@go mod download
-	@go mod tidy
-
-docs: ## Generate documentation with gomarkdoc
-	@$(GOMARKDOC) -e \
-		--repository.url https://github.com/lucasassuncao/apptide \
-		--repository.default-branch main \
-		--repository.path / \
-		-o '{{.Dir}}/README.md' ./internal/...
-
-run: ## Run the application
-	@go run $(MAIN_PATH)
-
-clean: ## Remove build artifacts and cache
-	@rm -rf $(BUILD_DIR) dist/ coverage.out
-	@go clean -cache -testcache
+clean-all: clean-tools clean-buildcache clean-testcache clean-modcache ## Remove build artifacts, installed tools and cache
+	@echo "Removing $(BUILD_DIR)..."
+	@rm -rf $(BUILD_DIR)
+	@echo "Removing dist..."
+	@rm -rf dist/
+	@echo "Removing $(COVERAGE_DIR)..."
+	@rm -rf $(COVERAGE_DIR)
+	@echo "Removing $(SBOM_FILE)..."
+	@rm -rf $(SBOM_FILE)

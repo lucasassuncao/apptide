@@ -8,134 +8,639 @@
 import "github.com/lucasassuncao/apptide/internal/config"
 ```
 
+Package config defines the apptide configuration schema and loads it from YAML, resolving \`import:\` chains and per\-file defaults.
+
+A config file declares applications, not packages: one application may be obtainable from several package managers, listed in preference order. The order applies to the first installation only — once installed, an application is bound to the source that succeeded \(see internal/state\) and upgrades and removals always go through that one.
+
 ## Index
 
-- [type ChocolateyConfig](<#ChocolateyConfig>)
+- [Constants](<#constants>)
+- [Variables](<#variables>)
+- [func AppendApplications\(path string, apps \[\]Application\) error](<#AppendApplications>)
+- [func NewMetadata\(\) \(spec.MetadataSource, error\)](<#NewMetadata>)
+- [type Action](<#Action>)
+  - [func \(a Action\) Valid\(\) bool](<#Action.Valid>)
+- [type Application](<#Application>)
+  - [func \(a Application\) CategoryOrDefault\(\) string](<#Application.CategoryOrDefault>)
+  - [func \(a Application\) EffectiveAction\(\) Action](<#Application.EffectiveAction>)
+  - [func \(Application\) Metadata\(\) map\[string\]any](<#Application.Metadata>)
+  - [func \(a Application\) Post\(action Action\) string](<#Application.Post>)
+  - [func \(a Application\) Pre\(action Action\) string](<#Application.Pre>)
+- [type ChocolateySpec](<#ChocolateySpec>)
+  - [func \(ChocolateySpec\) Metadata\(\) map\[string\]any](<#ChocolateySpec.Metadata>)
 - [type Config](<#Config>)
-  - [func LoadWithImports\(path string\) \(Config, error\)](<#LoadWithImports>)
-  - [func \(c Config\) Categories\(\) \[\]string](<#Config.Categories>)
-- [type GitHubConfig](<#GitHubConfig>)
-- [type Package](<#Package>)
-- [type ScoopConfig](<#ScoopConfig>)
-- [type WingetConfig](<#WingetConfig>)
+  - [func LoadWithImports\(path string\) \(\*Config, error\)](<#LoadWithImports>)
+  - [func \(c \*Config\) Categories\(\) \[\]string](<#Config.Categories>)
+  - [func \(c \*Config\) FilterBySource\(src Source\) \[\]Application](<#Config.FilterBySource>)
+  - [func \(c \*Config\) HasCategory\(cat string\) bool](<#Config.HasCategory>)
+  - [func \(c \*Config\) InCategory\(cat string\) \[\]Application](<#Config.InCategory>)
+  - [func \(Config\) Metadata\(\) map\[string\]any](<#Config.Metadata>)
+- [type Defaults](<#Defaults>)
+  - [func \(Defaults\) Metadata\(\) map\[string\]any](<#Defaults.Metadata>)
+- [type GitHubSpec](<#GitHubSpec>)
+  - [func \(GitHubSpec\) Metadata\(\) map\[string\]any](<#GitHubSpec.Metadata>)
+- [type Hooks](<#Hooks>)
+  - [func \(Hooks\) Metadata\(\) map\[string\]any](<#Hooks.Metadata>)
+- [type Packages](<#Packages>)
+  - [func \(p Packages\) Configured\(\) \[\]Source](<#Packages.Configured>)
+  - [func \(p Packages\) ID\(src Source\) \(string, bool\)](<#Packages.ID>)
+  - [func \(Packages\) Metadata\(\) map\[string\]any](<#Packages.Metadata>)
+- [type ScoopSpec](<#ScoopSpec>)
+  - [func \(ScoopSpec\) Metadata\(\) map\[string\]any](<#ScoopSpec.Metadata>)
+- [type Settings](<#Settings>)
+  - [func \(Settings\) Metadata\(\) map\[string\]any](<#Settings.Metadata>)
+- [type Source](<#Source>)
+  - [func AllSources\(\) \[\]Source](<#AllSources>)
+  - [func \(s Source\) Normalize\(\) Source](<#Source.Normalize>)
+  - [func \(s Source\) Valid\(\) bool](<#Source.Valid>)
+- [type Sources](<#Sources>)
+  - [func \(s Sources\) Contains\(src Source\) bool](<#Sources.Contains>)
+  - [func \(s Sources\) First\(\) \(Source, bool\)](<#Sources.First>)
+  - [func \(s Sources\) MarshalYAML\(\) \(any, error\)](<#Sources.MarshalYAML>)
+  - [func \(s Sources\) String\(\) string](<#Sources.String>)
+  - [func \(s \*Sources\) UnmarshalYAML\(n \*yaml.Node\) error](<#Sources.UnmarshalYAML>)
+- [type WingetSpec](<#WingetSpec>)
+  - [func \(WingetSpec\) Metadata\(\) map\[string\]any](<#WingetSpec.Metadata>)
 
 
-<a name="ChocolateyConfig"></a>
-## type [ChocolateyConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L21-L25>)
+## Constants
 
-ChocolateyConfig holds fields specific to the chocolatey source.
+<a name="SchemaVersion"></a>SchemaVersion is the config format this build writes and understands.
 
 ```go
-type ChocolateyConfig struct {
-    ID            string   `yaml:"id"`             // package identifier (e.g. "googlechrome")
-    Args          []string `yaml:"args"`           // extra CLI arguments passed to choco
-    PackageParams string   `yaml:"package_params"` // parameters forwarded to the package script (--package-parameters)
+const SchemaVersion = 2
+```
+
+<a name="UncategorizedLabel"></a>UncategorizedLabel is the category shown for applications without one.
+
+```go
+const UncategorizedLabel = "Uncategorized"
+```
+
+## Variables
+
+<a name="ErrNotFound"></a>LoadWithImports reads path and recursively resolves \`import:\` entries, merging every file into one Config. Import paths are relative to the file that declares them, and circular imports are reported as errors.
+
+Defaults are file\-scoped: each file's \`defaults:\` block is applied to that file's applications before merging, so an imported file never inherits the importer's defaults. ErrNotFound reports that the config file itself is missing, as opposed to being unreadable or malformed. Callers turn it into advice rather than a stack of wrapped I/O errors.
+
+```go
+var ErrNotFound = errors.New("no configuration file")
+```
+
+<a name="AppendApplications"></a>
+## func [AppendApplications](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/append.go#L22>)
+
+```go
+func AppendApplications(path string, apps []Application) error
+```
+
+AppendApplications adds apps to the \`applications:\` block of the config at path and writes the file back.
+
+The file is edited as text rather than decoded and re\-encoded: a round trip through the YAML marshaller would drop every comment and reflow the whole document. Here only the inserted lines are new; every other byte is copied through untouched.
+
+When several files are chained with \`import:\`, the entries land in the file given by path — the caller decides which one that is.
+
+<a name="NewMetadata"></a>
+## func [NewMetadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L16>)
+
+```go
+func NewMetadata() (spec.MetadataSource, error)
+```
+
+NewMetadata builds the metadata tree for the config schema.
+
+<a name="Action"></a>
+## type [Action](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L61>)
+
+Action is what apptide should do with an application.
+
+```go
+type Action string
+```
+
+<a name="ActionInstall"></a>
+
+```go
+const (
+    ActionInstall   Action = "install"
+    ActionUninstall Action = "uninstall"
+    ActionSkip      Action = "skip"
+)
+```
+
+<a name="Action.Valid"></a>
+### func \(Action\) [Valid](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L70>)
+
+```go
+func (a Action) Valid() bool
+```
+
+Valid reports whether a is a supported action.
+
+<a name="Application"></a>
+## type [Application](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L193-L228>)
+
+Application is one piece of software plus the coordinates each package manager knows it by.
+
+```go
+type Application struct {
+    Name        string `yaml:"name"`
+    Description string `yaml:"description,omitempty"`
+    Category    string `yaml:"category,omitempty"`
+    InfoURL     string `yaml:"info_url,omitempty"`
+
+    Action Action   `yaml:"action,omitempty"`
+    Tags   []string `yaml:"tags,omitempty"`
+
+    // Version is honoured by winget and chocolatey (--version) and by github
+    // (it becomes the release tag). Scoop has no per-version install, so a
+    // pinned version together with scoop in Source is a validation warning.
+    Version string `yaml:"version,omitempty"`
+
+    // SkipUpgrade installs when missing but never upgrades afterwards. It has
+    // no effect when github is the only source: that source has no upgrade path.
+    SkipUpgrade bool `yaml:"skip_upgrade,omitempty"`
+
+    // Optional keeps a failure from failing the run. A config of sixty
+    // applications should not exit non-zero — breaking CI — because of one
+    // package already known to be flaky.
+    Optional bool `yaml:"optional,omitempty"`
+
+    // RequiresAdmin states that this application needs elevation. apptide
+    // otherwise guesses from the source and its options, and a guess is wrong
+    // in both directions: a portable chocolatey package needs nothing, and a
+    // winget installer can demand elevation without saying so.
+    RequiresAdmin bool `yaml:"requires_admin,omitempty"`
+
+    // Source lists acceptable sources in preference order. Later entries are
+    // fallbacks used only when an earlier one does not offer the package.
+    Source Sources `yaml:"source"`
+
+    Hooks   *Hooks   `yaml:"hooks,omitempty"`
+    Package Packages `yaml:"package"`
 }
 ```
 
-<a name="Config"></a>
-## type [Config](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L73>)
-
-Config maps category names to their package lists.
+<a name="Application.CategoryOrDefault"></a>
+### func \(Application\) [CategoryOrDefault](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L578>)
 
 ```go
-type Config map[string][]Package
+func (a Application) CategoryOrDefault() string
+```
+
+CategoryOrDefault returns the application's category, or UncategorizedLabel.
+
+<a name="Application.EffectiveAction"></a>
+### func \(Application\) [EffectiveAction](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L269>)
+
+```go
+func (a Application) EffectiveAction() Action
+```
+
+EffectiveAction returns the action to perform, defaulting to install.
+
+<a name="Application.Metadata"></a>
+### func \(Application\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L85>)
+
+```go
+func (Application) Metadata() map[string]any
+```
+
+
+
+<a name="Application.Post"></a>
+### func \(Application\) [Post](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L258>)
+
+```go
+func (a Application) Post(action Action) string
+```
+
+Post returns the command to run after action succeeds, or "" when there is none.
+
+<a name="Application.Pre"></a>
+### func \(Application\) [Pre](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L247>)
+
+```go
+func (a Application) Pre(action Action) string
+```
+
+Pre returns the command to run before action, or "" when there is none.
+
+<a name="ChocolateySpec"></a>
+## type [ChocolateySpec](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L334-L344>)
+
+ChocolateySpec holds chocolatey coordinates and flags.
+
+```go
+type ChocolateySpec struct {
+    ID   string   `yaml:"id"`
+    Args []string `yaml:"args,omitempty"` // appended to choco install/upgrade
+    // PackageParams goes to the package script (--package-parameters);
+    // InstallArgs goes to the native installer (--install-arguments).
+    // Chocolatey treats these as two distinct channels.
+    PackageParams  string `yaml:"package_params,omitempty"`
+    InstallArgs    string `yaml:"install_args,omitempty"`
+    Feed           string `yaml:"feed,omitempty"`            // --source <feed>
+    AllowDowngrade bool   `yaml:"allow_downgrade,omitempty"` // --allow-downgrade
+}
+```
+
+<a name="ChocolateySpec.Metadata"></a>
+### func \(ChocolateySpec\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L218>)
+
+```go
+func (ChocolateySpec) Metadata() map[string]any
+```
+
+
+
+<a name="Config"></a>
+## type [Config](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L157-L162>)
+
+Config is a loaded configuration. The top\-level \`import:\` key is not a field: the loader resolves it before decoding, and the editor lists it in PassthroughKeys so it survives a save without being shown.
+
+```go
+type Config struct {
+    SchemaVersion int           `yaml:"schema_version"`
+    Settings      *Settings     `yaml:"settings,omitempty"`
+    Defaults      *Defaults     `yaml:"defaults,omitempty"`
+    Applications  []Application `yaml:"applications"`
+}
 ```
 
 <a name="LoadWithImports"></a>
-### func [LoadWithImports](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L78>)
+### func [LoadWithImports](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L395>)
 
 ```go
-func LoadWithImports(path string) (Config, error)
+func LoadWithImports(path string) (*Config, error)
 ```
 
-LoadWithImports reads a YAML config file and recursively resolves any \`import:\` entries, merging all packages into a single Config. Import paths are relative to the file that declares them. Circular imports are detected and reported as errors.
+
 
 <a name="Config.Categories"></a>
-### func \(Config\) [Categories](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L164>)
+### func \(\*Config\) [Categories](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L561>)
 
 ```go
-func (c Config) Categories() []string
+func (c *Config) Categories() []string
 ```
 
-Categories returns the sorted list of category names.
+Categories returns the category names present, in first\-seen order, with applications that declare no category grouped under "Uncategorized".
 
-<a name="GitHubConfig"></a>
-## type [GitHubConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L35-L42>)
-
-GitHubConfig holds fields specific to the github source.
+<a name="Config.FilterBySource"></a>
+### func \(\*Config\) [FilterBySource](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L608>)
 
 ```go
-type GitHubConfig struct {
-    Repo         string   `yaml:"repo"`          // "owner/repo"
-    AssetPattern string   `yaml:"asset_pattern"` // glob to match a specific release asset (e.g. "*windows_amd64*.zip")
-    RunInstaller bool     `yaml:"run_installer"` // run the .exe/.msi instead of copying the binary
-    InstallDir   string   `yaml:"install_dir"`   // override the default binary destination directory
-    Args         []string `yaml:"args"`          // extra CLI arguments passed to the installer (when run_installer: true)
-    BinaryName   string   `yaml:"binary_name"`   // explicit binary name to use instead of lowercased package name (e.g. "gh" for "GitHub CLI")
+func (c *Config) FilterBySource(src Source) []Application
+```
+
+FilterBySource returns the applications that accept src as one of their sources.
+
+<a name="Config.HasCategory"></a>
+### func \(\*Config\) [HasCategory](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L597>)
+
+```go
+func (c *Config) HasCategory(cat string) bool
+```
+
+HasCategory reports whether any application declares cat.
+
+<a name="Config.InCategory"></a>
+### func \(\*Config\) [InCategory](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L586>)
+
+```go
+func (c *Config) InCategory(cat string) []Application
+```
+
+InCategory returns the applications belonging to cat.
+
+<a name="Config.Metadata"></a>
+### func \(Config\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L20>)
+
+```go
+func (Config) Metadata() map[string]any
+```
+
+
+
+<a name="Defaults"></a>
+## type [Defaults](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L184-L189>)
+
+Defaults apply to every application in the same file that omits the field. They are resolved at load time, so consumers always see final values.
+
+```go
+type Defaults struct {
+    Category string   `yaml:"category,omitempty"`
+    Source   Sources  `yaml:"source,omitempty"`
+    Action   Action   `yaml:"action,omitempty"`
+    Tags     []string `yaml:"tags,omitempty"`
 }
 ```
 
-<a name="Package"></a>
-## type [Package](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L45-L70>)
-
-Package represents a single software entry in the config file.
+<a name="Defaults.Metadata"></a>
+### func \(Defaults\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L63>)
 
 ```go
-type Package struct {
-    // Common fields
-    Name        string `yaml:"name"`        // display name (required)
-    Source      string `yaml:"source"`      // winget | chocolatey | scoop | github (required)
-    Action      string `yaml:"action"`      // install | uninstall | skip  (default: install)
-    Version     string `yaml:"version"`     // specific version or "latest" (default: latest)
-    Description string `yaml:"description"` // informational only
-    NoUpgrade   bool   `yaml:"no_upgrade"`  // skip upgrade when already installed
-    InfoURL     string `yaml:"info_url"`    // project homepage / docs link
+func (Defaults) Metadata() map[string]any
+```
 
-    // PreInstall is an optional shell command executed before install/uninstall.
-    // Runs via: cmd /C <pre_install>
-    // If it exits with a non-zero code the package action is aborted.
-    PreInstall string `yaml:"pre_install"`
 
-    // PostInstall is an optional shell command executed after a successful install/uninstall.
-    // Runs via: cmd /C <post_install>
-    // A non-zero exit code is reported as a warning but does not mark the package as failed.
-    PostInstall string `yaml:"post_install"`
 
-    // Source-specific blocks — at most one will be set per package.
-    Winget     *WingetConfig     `yaml:"winget"`
-    Chocolatey *ChocolateyConfig `yaml:"chocolatey"`
-    Scoop      *ScoopConfig      `yaml:"scoop"`
-    GitHub     *GitHubConfig     `yaml:"github"`
+<a name="GitHubSpec"></a>
+## type [GitHubSpec](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L356-L379>)
+
+GitHubSpec holds GitHub release coordinates and flags.
+
+```go
+type GitHubSpec struct {
+    ID  string `yaml:"id"` // "owner/repo"
+
+    // Args go to the downloaded installer (or msiexec), not to a package
+    // manager — the one field whose meaning differs from the other sources.
+    // Without RunInstaller it has no effect.
+    Args []string `yaml:"args,omitempty"`
+
+    AssetPattern string `yaml:"asset_pattern,omitempty"` // glob forcing a specific asset
+    RunInstaller bool   `yaml:"run_installer,omitempty"` // run the .exe/.msi instead of copying
+    InstallDir   string `yaml:"install_dir,omitempty"`   // override the default binary dir
+    BinaryName   string `yaml:"binary_name,omitempty"`   // binary name when it differs from Name
+
+    // Checksum is the expected SHA-256 of the downloaded asset, with an
+    // optional "sha256:" prefix. It pins the exact bytes, which the release's
+    // own checksum file cannot do: that file is published by whoever published
+    // the asset. Only worth setting for a pinned version.
+    Checksum string `yaml:"checksum,omitempty"`
+
+    // Prerelease accepts pre-release tags. The GitHub "latest release" endpoint
+    // excludes them, so a repository that only publishes pre-releases resolves
+    // to nothing at all without this.
+    Prerelease bool `yaml:"prerelease,omitempty"`
 }
 ```
 
-<a name="ScoopConfig"></a>
-## type [ScoopConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L28-L32>)
-
-ScoopConfig holds fields specific to the scoop source.
+<a name="GitHubSpec.Metadata"></a>
+### func \(GitHubSpec\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L274>)
 
 ```go
-type ScoopConfig struct {
-    ID     string   `yaml:"id"`     // package identifier (e.g. "vim")
-    Args   []string `yaml:"args"`   // extra CLI arguments passed to scoop
-    Bucket string   `yaml:"bucket"` // scoop bucket that provides the package (e.g. "extras")
+func (GitHubSpec) Metadata() map[string]any
+```
+
+
+
+<a name="Hooks"></a>
+## type [Hooks](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L235-L244>)
+
+Hooks are shell commands run around the action, via cmd /C.
+
+Install and uninstall have their own pair: a command named for installing must not run when the application is being removed, and someone who removes software regularly needs somewhere to clean up after it.
+
+```go
+type Hooks struct {
+    // PreInstall runs before an install or upgrade; a non-zero exit aborts it.
+    PreInstall string `yaml:"pre_install,omitempty"`
+    // PostInstall runs after a successful install; a non-zero exit is a warning.
+    PostInstall string `yaml:"post_install,omitempty"`
+    // PreUninstall runs before a removal; a non-zero exit aborts it.
+    PreUninstall string `yaml:"pre_uninstall,omitempty"`
+    // PostUninstall runs after a successful removal; a non-zero exit is a warning.
+    PostUninstall string `yaml:"post_uninstall,omitempty"`
 }
 ```
 
-<a name="WingetConfig"></a>
-## type [WingetConfig](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L13-L18>)
-
-WingetConfig holds fields specific to the winget source.
+<a name="Hooks.Metadata"></a>
+### func \(Hooks\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L154>)
 
 ```go
-type WingetConfig struct {
-    ID     string   `yaml:"id"`     // package identifier (e.g. "Publisher.App")
-    Args   []string `yaml:"args"`   // extra CLI arguments passed to winget
-    Scope  string   `yaml:"scope"`  // installation scope: "machine" or "user" (--scope)
-    Locale string   `yaml:"locale"` // installer locale (e.g. "pt-BR") (--locale)
+func (Hooks) Metadata() map[string]any
+```
+
+
+
+<a name="Packages"></a>
+## type [Packages](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L281-L286>)
+
+Packages holds the identifier and options each manager needs. Every source listed in Application.Source must have its block filled in; a block present for a source that is not listed is dead config and reported by validate.
+
+```go
+type Packages struct {
+    Winget     *WingetSpec     `yaml:"winget,omitempty"`
+    Chocolatey *ChocolateySpec `yaml:"chocolatey,omitempty"`
+    Scoop      *ScoopSpec      `yaml:"scoop,omitempty"`
+    GitHub     *GitHubSpec     `yaml:"github,omitempty"`
 }
 ```
+
+<a name="Packages.Configured"></a>
+### func \(Packages\) [Configured](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L313>)
+
+```go
+func (p Packages) Configured() []Source
+```
+
+Configured lists the sources that have a block in this document.
+
+<a name="Packages.ID"></a>
+### func \(Packages\) [ID](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L290>)
+
+```go
+func (p Packages) ID(src Source) (string, bool)
+```
+
+ID returns the identifier src knows this application by, and whether src is configured at all.
+
+<a name="Packages.Metadata"></a>
+### func \(Packages\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L178>)
+
+```go
+func (Packages) Metadata() map[string]any
+```
+
+
+
+<a name="ScoopSpec"></a>
+## type [ScoopSpec](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L347-L353>)
+
+ScoopSpec holds scoop coordinates and flags.
+
+```go
+type ScoopSpec struct {
+    ID     string   `yaml:"id"`
+    Args   []string `yaml:"args,omitempty"`
+    Bucket string   `yaml:"bucket,omitempty"` // added before install when missing
+    Global bool     `yaml:"global,omitempty"` // scoop install --global
+    Arch   string   `yaml:"arch,omitempty"`   // --arch 64bit|32bit|arm64
+}
+```
+
+<a name="ScoopSpec.Metadata"></a>
+### func \(ScoopSpec\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L249>)
+
+```go
+func (ScoopSpec) Metadata() map[string]any
+```
+
+
+
+<a name="Settings"></a>
+## type [Settings](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L171-L180>)
+
+Settings holds the run\-wide options that previously existed only as command line flags, which meant repeating them on every invocation and left the editor and the browser with nothing to edit but applications.
+
+Only the settings of the file given on the command line are used; an imported file describes applications, not how the run is configured. A flag always wins over the file.
+
+```go
+type Settings struct {
+    // InstallDir is where github binaries land. Environment variables are
+    // expanded, so a config can be shared between machines.
+    InstallDir string `yaml:"install_dir,omitempty"`
+    // AddToPath adds InstallDir to the user PATH after installing a binary.
+    AddToPath bool `yaml:"add_to_path,omitempty"`
+    // GitHubToken raises the API rate limit. Write it as ${GITHUB_TOKEN} and
+    // keep the value out of the file.
+    GitHubToken string `yaml:"github_token,omitempty"`
+}
+```
+
+<a name="Settings.Metadata"></a>
+### func \(Settings\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L43>)
+
+```go
+func (Settings) Metadata() map[string]any
+```
+
+
+
+<a name="Source"></a>
+## type [Source](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L27>)
+
+Source identifies a package manager.
+
+```go
+type Source string
+```
+
+<a name="SourceWinget"></a>
+
+```go
+const (
+    SourceWinget     Source = "winget"
+    SourceChocolatey Source = "chocolatey"
+    SourceScoop      Source = "scoop"
+    SourceGitHub     Source = "github"
+)
+```
+
+<a name="AllSources"></a>
+### func [AllSources](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L37>)
+
+```go
+func AllSources() []Source
+```
+
+AllSources lists every supported source in a stable order.
+
+<a name="Source.Normalize"></a>
+### func \(Source\) [Normalize](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L42>)
+
+```go
+func (s Source) Normalize() Source
+```
+
+Normalize maps aliases to the canonical source name.
+
+<a name="Source.Valid"></a>
+### func \(Source\) [Valid](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L52>)
+
+```go
+func (s Source) Valid() bool
+```
+
+Valid reports whether s is a supported source.
+
+<a name="Sources"></a>
+## type [Sources](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L85>)
+
+Sources is the ordered list of sources that may install an application. Both YAML forms are accepted:
+
+```
+source: winget
+source: [winget, scoop, github]
+```
+
+```go
+type Sources []Source
+```
+
+<a name="Sources.Contains"></a>
+### func \(Sources\) [Contains](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L134>)
+
+```go
+func (s Sources) Contains(src Source) bool
+```
+
+Contains reports whether src is an accepted source.
+
+<a name="Sources.First"></a>
+### func \(Sources\) [First](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L126>)
+
+```go
+func (s Sources) First() (Source, bool)
+```
+
+First returns the preferred source for a fresh installation.
+
+<a name="Sources.MarshalYAML"></a>
+### func \(Sources\) [MarshalYAML](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L118>)
+
+```go
+func (s Sources) MarshalYAML() (any, error)
+```
+
+MarshalYAML collapses a single source back to scalar form, so a file round\-tripped through the editor keeps the shape the user wrote.
+
+<a name="Sources.String"></a>
+### func \(Sources\) [String](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L144>)
+
+```go
+func (s Sources) String() string
+```
+
+
+
+<a name="Sources.UnmarshalYAML"></a>
+### func \(\*Sources\) [UnmarshalYAML](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L94>)
+
+```go
+func (s *Sources) UnmarshalYAML(n *yaml.Node) error
+```
+
+UnmarshalYAML accepts a sequence, a single scalar, or a comma\-separated scalar.
+
+The last form exists because \`source: winget, scoop\` is the obvious way to write a preference list, and YAML reads it as the single string "winget, scoop" — which would otherwise only fail at validation, after the user had already written it that way everywhere.
+
+<a name="WingetSpec"></a>
+## type [WingetSpec](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/config.go#L324-L331>)
+
+WingetSpec holds winget coordinates and flags.
+
+```go
+type WingetSpec struct {
+    ID       string   `yaml:"id"`                 // "Publisher.App"
+    Args     []string `yaml:"args,omitempty"`     // appended to winget install/upgrade
+    Scope    string   `yaml:"scope,omitempty"`    // --scope machine|user
+    Locale   string   `yaml:"locale,omitempty"`   // --locale pt-BR
+    Feed     string   `yaml:"feed,omitempty"`     // --source winget|msstore|<private feed>
+    Override string   `yaml:"override,omitempty"` // --override, passed raw to the installer
+}
+```
+
+<a name="WingetSpec.Metadata"></a>
+### func \(WingetSpec\) [Metadata](<https://github.com/lucasassuncao/apptide/blob/main/internal/config/metadata.go#L187>)
+
+```go
+func (WingetSpec) Metadata() map[string]any
+```
+
+
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)
 

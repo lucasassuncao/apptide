@@ -13,6 +13,7 @@ var (
 	installDir  string
 	addToPath   bool
 	githubToken string
+	tagFilter   []string
 )
 
 var installCmd = &cobra.Command{
@@ -21,12 +22,15 @@ var installCmd = &cobra.Command{
 	Example: `  apptide install
   apptide install --category Development
   apptide install --source winget
-  apptide install --dry-run`,
+  apptide install --tags work,cli
+  apptide install --dry-run
+  apptide install --output json | jq '.summary'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		r := runner.New(runner.Options{
 			ConfigPath:  configPath,
 			Category:    category,
 			Source:      source,
+			Tags:        tagFilter,
 			DryRun:      dryRun,
 			Force:       force,
 			InstallDir:  installDir,
@@ -41,8 +45,9 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 	installCmd.Flags().StringVarP(&category, "category", "C", "", "process only this category")
 	installCmd.Flags().StringVarP(&source, "source", "s", "", "process only this source (winget, chocolatey, scoop, github)")
+	installCmd.Flags().StringSliceVar(&tagFilter, "tags", nil, "process only applications carrying any of these tags")
 	installCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "simulate actions without executing anything")
-	installCmd.Flags().BoolVarP(&force, "force", "f", false, "force reinstall even if already up to date (no_upgrade: true in YAML takes priority)")
+	installCmd.Flags().BoolVarP(&force, "force", "f", false, "force reinstall even if already up to date (skip_upgrade: true in YAML takes priority)")
 	installCmd.Flags().StringVar(&installDir, "install-dir", "", `default dir for github binaries (default: %LOCALAPPDATA%\apptide\bin)`)
 	installCmd.Flags().BoolVar(&addToPath, "add-to-path", false, "add the install-dir to the user PATH if not already present")
 	installCmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub API token (or set $GITHUB_TOKEN)")

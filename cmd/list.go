@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"math"
 	"sort"
-	"strings"
 
 	"github.com/lucasassuncao/apptide/internal/config"
 	"github.com/lucasassuncao/apptide/internal/output"
+	"github.com/lucasassuncao/bezel/table"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +15,7 @@ var listCategories bool
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List packages defined in the config file",
+	Short: "List applications defined in the config file",
 	Example: `  apptide list
   apptide list --categories
   apptide list --config other.yaml`,
@@ -27,93 +28,102 @@ var listCmd = &cobra.Command{
 		categories := cfg.Categories()
 
 		if output.IsJSON() {
-			type jsonPkg struct {
-				Category    string `json:"category"`
-				Name        string `json:"name"`
-				Source      string `json:"source"`
-				Action      string `json:"action"`
-				Version     string `json:"version,omitempty"`
-				Description string `json:"description,omitempty"`
-			}
-			var all []jsonPkg
-			for _, cat := range categories {
-				pkgs := make([]config.Package, len(cfg[cat]))
-				copy(pkgs, cfg[cat])
-				sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Name < pkgs[j].Name })
-				for _, pkg := range pkgs {
-					action := strings.ToLower(pkg.Action)
-					if action == "" {
-						action = "install"
-					}
-					all = append(all, jsonPkg{
-						Category:    cat,
-						Name:        pkg.Name,
-						Source:      pkg.Source,
-						Action:      action,
-						Version:     pkg.Version,
-						Description: pkg.Description,
-					})
-				}
-			}
-			output.PrintJSON(all)
-			return nil
+			return listJSON(cfg, categories)
 		}
-
 		if listCategories {
+			rows := make([][]string, len(categories))
+			for i, c := range categories {
+				rows[i] = []string{c, fmt.Sprintf("%d application(s)", len(cfg.InCategory(c)))}
+			}
+			widths := table.Fit(make([]table.Column, 2), rows, math.MaxInt)
 			fmt.Println("Available categories:")
-			for _, c := range categories {
-				fmt.Printf("  %-24s %d packages\n", c, len(cfg[c]))
+			for _, r := range rows {
+				fmt.Println("  " + table.Row(widths, r))
 			}
 			return nil
 		}
-
-		// Compute the widest name across all packages so columns align dynamically.
-		wName := 20
-		for _, cat := range categories {
-			for _, pkg := range cfg[cat] {
-				if l := len(pkg.Name); l > wName {
-					wName = l
-				}
-			}
-		}
-		wName += 2 // breathing room
-
-		for _, cat := range categories {
-			fmt.Printf("\n\033[1m\033[33m[%s]\033[0m\n", cat)
-
-			pkgs := make([]config.Package, len(cfg[cat]))
-			copy(pkgs, cfg[cat])
-			sort.Slice(pkgs, func(i, j int) bool {
-				return pkgs[i].Name < pkgs[j].Name
-			})
-
-			for _, pkg := range pkgs {
-				action := strings.ToLower(pkg.Action)
-				if action == "" {
-					action = "install"
-				}
-
-				actionColor := "\033[32m" // green = install
-				switch action {
-				case "skip":
-					actionColor = "\033[90m"
-				case "uninstall":
-					actionColor = "\033[31m"
-				}
-
-				desc := ""
-				if pkg.Description != "" {
-					desc = fmt.Sprintf("  \033[90m%s\033[0m", pkg.Description)
-				}
-
-				fmt.Printf("  %-*s \033[36m%-12s\033[0m %s%-10s\033[0m%s\n",
-					wName, pkg.Name, pkg.Source, actionColor, action, desc)
-			}
-		}
-
-		fmt.Println()
-		return nil
+		return listTable(cfg, categories)
 	},
+}
+
+// jsonApp is the shape emitted by `list --output json`. Sources is a list
+// because an application may accept several managers in preference order.
+type jsonApp struct {
+	Category    string   `json:"category"`
+	Name        string   `json:"name"`
+	Sources     []string `json:"sources"`
+	Action      string   `json:"action"`
+	Version     string   `json:"version,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
+func listJSON(cfg *config.Config, categories []string) error {
+	var all []jsonApp
+	for _, cat := range categories {
+		apps := sortedByName(cfg.InCategory(cat))
+		for _, app := range apps {
+			sources := make([]string, len(app.Source))
+			for i, s := range app.Source {
+				sources[i] = string(s)
+			}
+			all = append(all, jsonApp{
+				Category:    cat,
+				Name:        app.Name,
+				Sources:     sources,
+				Action:      string(app.EffectiveAction()),
+				Version:     app.Version,
+				Tags:        app.Tags,
+				Description: app.Description,
+			})
+		}
+	}
+	output.PrintJSON(all)
+	return nil
+}
+
+func listTable(cfg *config.Config, categories []string) error {
+	// Sized once over every category, so the columns line up across groups.
+	rows := make(map[string][][]string, len(categories))
+	var all [][]string
+	for _, cat := range categories {
+		for _, app := range sortedByName(cfg.InCategory(cat)) {
+			action := app.EffectiveAction()
+			actionStyle := th.Success
+			switch action {
+			case config.ActionSkip:
+				actionStyle = th.Dim
+			case config.ActionUninstall:
+				actionStyle = th.Danger
+			}
+			r := []string{
+				app.Name,
+				th.Info.Render(app.Source.String()),
+				actionStyle.Render(string(action)),
+				th.Dim.Render(app.Description),
+			}
+			rows[cat] = append(rows[cat], r)
+			all = append(all, r)
+		}
+	}
+	widths := table.Fit(make([]table.Column, 4), all, math.MaxInt)
+
+	for _, cat := range categories {
+		fmt.Println("\n" + th.Warning.Bold(true).Render("["+cat+"]"))
+		for _, r := range rows[cat] {
+			fmt.Println("  " + table.Row(widths, r))
+		}
+	}
+
+	fmt.Println()
+	return nil
+}
+
+func sortedByName(apps []config.Application) []config.Application {
+	out := make([]config.Application, len(apps))
+	copy(out, apps)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 func init() {

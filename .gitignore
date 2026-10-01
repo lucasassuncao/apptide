@@ -11,9 +11,7 @@ dist/
 *.test
 
 # Output of the go coverage tool
-*.out
-coverage.out
-coverage.html
+coverage/
 
 # Dependency directories
 vendor/
@@ -56,4 +54,10 @@ apptide.yaml
 .claude
 CLAUDE.md
 apptide/
-./packages.yaml
+/packages.yaml
+
+# Pinned tools installed by the Makefile
+.gobin/
+
+# Generated SBOM
+sbom.json

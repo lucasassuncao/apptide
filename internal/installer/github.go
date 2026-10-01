@@ -1,587 +1,330 @@
 package installer
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/lucasassuncao/apptide/internal/archive"
 	"github.com/lucasassuncao/apptide/internal/config"
+	"github.com/lucasassuncao/apptide/internal/ghrelease"
 )
 
 // GitHub downloads and installs packages from GitHub Releases.
 type GitHub struct {
-	token      string
 	installDir string
-	client     *http.Client
-}
-
-type ghRelease struct {
-	TagName string    `json:"tag_name"`
-	Assets  []ghAsset `json:"assets"`
-}
-
-type ghAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-	Size               int64  `json:"size"`
+	client     *ghrelease.Client
 }
 
 func NewGitHub(token, installDir string) *GitHub {
 	return &GitHub{
-		token:      token,
 		installDir: installDir,
-		client:     &http.Client{},
+		client:     ghrelease.NewClient(token),
 	}
 }
 
-func (g *GitHub) Name() string      { return SourceGitHub }
+func (g *GitHub) Name() string      { return string(config.SourceGitHub) }
 func (g *GitHub) IsAvailable() bool { return true } // no external dependency
 
 // binaryBaseName returns the base name used for the installed binary or directory.
 // It uses github.binary_name when set, otherwise falls back to the lowercased package name.
-func binaryBaseName(pkg config.Package) string {
-	if pkg.GitHub != nil && pkg.GitHub.BinaryName != "" {
-		return strings.ToLower(pkg.GitHub.BinaryName)
+func binaryBaseName(app config.Application) string {
+	if app.Package.GitHub != nil && app.Package.GitHub.BinaryName != "" {
+		return strings.ToLower(app.Package.GitHub.BinaryName)
 	}
-	return strings.ToLower(pkg.Name)
+	return strings.ToLower(app.Name)
 }
 
-// Check looks for the binary or directory that Install would have created.
-func (g *GitHub) Check(pkg config.Package) (bool, string) {
-	dir := g.installDir
-	if pkg.GitHub != nil && pkg.GitHub.InstallDir != "" {
-		dir = pkg.GitHub.InstallDir
+// targetDir is where this application's files go.
+func (g *GitHub) targetDir(app config.Application) string {
+	if app.Package.GitHub != nil && app.Package.GitHub.InstallDir != "" {
+		return app.Package.GitHub.InstallDir
 	}
+	return g.installDir
+}
+
+// marker records what was installed, next to the files themselves.
+//
+// GitHub releases have no package database to ask, so without this apptide
+// could see that a binary exists but never which release it came from — which
+// is why this source had no version, no upgrade and no uninstall. The file
+// lives beside the binary rather than in the state file so that it survives a
+// lost state, and so a directory copied to another machine stays self-describing.
+type marker struct {
+	Version     string `json:"version"`
+	Repo        string `json:"repo"`
+	Asset       string `json:"asset,omitempty"`
+	InstalledAt string `json:"installed_at"`
+	// RunInstaller records that Windows owns the installed program, so
+	// deleting files here would not uninstall anything.
+	RunInstaller bool `json:"run_installer,omitempty"`
+}
+
+func markerPath(dir, base string) string {
+	return filepath.Join(dir, ".apptide", base+".json")
+}
+
+func readMarker(dir, base string) (marker, bool) {
+	data, err := os.ReadFile(markerPath(dir, base))
+	if err != nil {
+		return marker{}, false
+	}
+	var m marker
+	if err := json.Unmarshal(data, &m); err != nil {
+		return marker{}, false
+	}
+	return m, true
+}
+
+func writeMarker(dir, base string, m marker) error {
+	path := markerPath(dir, base)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("creating marker dir: %w", err)
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+// Check looks for the binary or directory that Install would have created, and
+// reports the release it came from when the marker is present. An install made
+// before markers existed still reports installed, just without a version.
+func (g *GitHub) Check(app config.Application) (bool, string) {
+	dir := g.targetDir(app)
+	base := binaryBaseName(app)
+
+	m, hasMarker := readMarker(dir, base)
+
+	// run_installer hands the program to Windows; the marker is the only trace
+	// apptide keeps of it.
+	if hasMarker && m.RunInstaller {
+		return true, m.Version
+	}
+
 	// Single binary case: <name>.exe
-	if _, err := os.Stat(filepath.Join(dir, binaryBaseName(pkg)+".exe")); err == nil {
-		return true, ""
+	if _, err := os.Stat(filepath.Join(dir, base+".exe")); err == nil {
+		return true, m.Version
 	}
 	// Extracted directory case (extractAll)
-	if info, err := os.Stat(filepath.Join(dir, binaryBaseName(pkg))); err == nil && info.IsDir() {
-		return true, ""
+	if info, err := os.Stat(filepath.Join(dir, base)); err == nil && info.IsDir() {
+		return true, m.Version
 	}
 	return false, ""
 }
 
-func (g *GitHub) Install(ctx context.Context, pkg config.Package) error {
-	if pkg.GitHub == nil || pkg.GitHub.Repo == "" {
-		return fmt.Errorf("missing 'github.repo' for package %q", pkg.Name)
+func (g *GitHub) Install(ctx context.Context, app config.Application) error {
+	spec := app.Package.GitHub
+	if spec == nil || spec.ID == "" {
+		return fmt.Errorf("%w: no 'package.github.id' for %q", ErrNotOffered, app.Name)
 	}
 
-	release, err := g.fetchRelease(ctx, pkg.GitHub.Repo, pkg.Version)
+	release, err := g.resolveRelease(ctx, spec, app.Version)
 	if err != nil {
 		return err
 	}
 
-	asset := selectAsset(release.Assets, pkg)
-	if asset == nil {
-		return fmt.Errorf("no suitable Windows asset found in %s @ %s", pkg.GitHub.Repo, release.TagName)
+	// Decide whether anything needs to happen before downloading.
+	if installed, current := g.Check(app); installed {
+		switch {
+		case app.SkipUpgrade:
+			return ErrAlreadyInstalled
+		case current != "" && current == release.TagName:
+			return ErrAlreadyInstalled
+		case current == "":
+			// Installed before markers existed: the release is unknown, so
+			// reinstalling is the only way to learn it.
+		}
 	}
 
-	tmp, err := g.downloadAsset(ctx, asset)
+	asset := selectAsset(release.Assets, app)
+	if asset == nil {
+		return fmt.Errorf("no suitable Windows asset found in %s @ %s", spec.ID, release.TagName)
+	}
+
+	tmp, err := g.client.DownloadTemp(ctx, *asset)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
 
-	dir := g.installDir
-	if pkg.GitHub.InstallDir != "" {
-		dir = pkg.GitHub.InstallDir
+	if err := g.verify(ctx, tmp, *asset, release.Assets, spec); err != nil {
+		return err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+
+	dir := g.targetDir(app)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("creating install dir %q: %w", dir, err)
 	}
 
-	return g.installFile(ctx, tmp, asset.Name, dir, pkg)
-}
-
-func (g *GitHub) Uninstall(ctx context.Context, pkg config.Package) error {
-	return fmt.Errorf("uninstall is not supported for github source")
-}
-
-// fetchRelease returns the latest or a specific tagged release from GitHub API.
-// For versioned lookups it automatically retries with and without a "v" prefix
-// so that both "1.2.3" and "v1.2.3" resolve regardless of the repo's tag convention.
-func (g *GitHub) fetchRelease(ctx context.Context, repo, version string) (*ghRelease, error) {
-	if version == "" || strings.EqualFold(version, "latest") {
-		url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-		return g.fetchReleaseURL(ctx, url, "latest", repo)
+	if err := g.installFile(ctx, tmp, asset.Name, dir, app); err != nil {
+		return err
 	}
 
-	// Build the list of tags to try: exact first, then the v-toggled variant.
-	tags := []string{version}
-	if strings.HasPrefix(version, "v") {
-		tags = append(tags, version[1:]) // "v1.2.3" → also try "1.2.3"
-	} else {
-		tags = append(tags, "v"+version) // "1.2.3"  → also try "v1.2.3"
+	return writeMarker(dir, binaryBaseName(app), marker{
+		Version:      release.TagName,
+		Repo:         spec.ID,
+		Asset:        asset.Name,
+		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
+		RunInstaller: spec.RunInstaller,
+	})
+}
+
+// Uninstall deletes what Install placed: the binary or extracted directory,
+// plus the marker.
+//
+// With run_installer the program was handed to a Windows installer and is
+// registered in Add/Remove Programs; deleting our files would leave it
+// installed but untracked, so that case refuses with instructions instead.
+func (g *GitHub) Uninstall(ctx context.Context, app config.Application) error {
+	spec := app.Package.GitHub
+	if spec == nil || spec.ID == "" {
+		return fmt.Errorf("%w: no 'package.github.id' for %q", ErrNotOffered, app.Name)
 	}
 
-	for i, tag := range tags {
-		url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, tag)
-		rel, err := g.fetchReleaseURL(ctx, url, tag, repo)
-		if err == nil {
-			return rel, nil
+	dir := g.targetDir(app)
+	base := binaryBaseName(app)
+	m, _ := readMarker(dir, base)
+
+	if spec.RunInstaller || m.RunInstaller {
+		return fmt.Errorf(
+			"%q was installed by its own installer — remove it from Windows Settings > Apps, then run 'apptide adopt %s --forget'",
+			app.Name, app.Name)
+	}
+
+	removed := false
+	for _, path := range []string{
+		filepath.Join(dir, base+".exe"),
+		filepath.Join(dir, base+".msi"),
+		filepath.Join(dir, base),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			continue
 		}
-		// Only retry on 404; propagate rate-limit and other errors immediately.
-		isNotFound := strings.Contains(err.Error(), "not found")
-		if !isNotFound || i == len(tags)-1 {
-			return nil, fmt.Errorf("release %q not found for %s (tried: %s)", version, repo, strings.Join(tags, ", "))
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("removing %q: %w", path, err)
 		}
+		removed = true
 	}
-	return nil, fmt.Errorf("release %q not found for %s", version, repo)
+
+	// The marker goes last: while it exists, a failed removal is still visible.
+	if err := os.Remove(markerPath(dir, base)); err == nil {
+		removed = true
+	}
+
+	if !removed {
+		return ErrAlreadyInstalled // nothing was there; treated as a no-op
+	}
+	return nil
 }
 
-// fetchReleaseURL performs a single GitHub releases API request.
-func (g *GitHub) fetchReleaseURL(ctx context.Context, url, tag, repo string) (*ghRelease, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("User-Agent", "github.com/lucasassuncao/apptide/1.0")
-	if g.token != "" {
-		req.Header.Set("Authorization", "Bearer "+g.token)
-	}
-
-	resp, err := g.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("github api request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("release %q not found for %s", tag, repo)
-	case http.StatusForbidden, http.StatusTooManyRequests:
-		return nil, fmt.Errorf("github api rate-limited (set GITHUB_TOKEN to increase limits)")
+// resolveRelease picks the release to install, honouring prerelease.
+func (g *GitHub) resolveRelease(ctx context.Context, spec *config.GitHubSpec, version string) (*ghrelease.Release, error) {
+	pinned := version != "" && !strings.EqualFold(version, "latest")
+	switch {
+	case pinned:
+		return g.client.TagFuzzy(ctx, spec.ID, version)
+	case spec.Prerelease:
+		return g.client.Newest(ctx, spec.ID)
 	default:
-		return nil, fmt.Errorf("github api returned %d for %s", resp.StatusCode, repo)
+		return g.client.Latest(ctx, spec.ID)
 	}
-
-	var rel ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return nil, fmt.Errorf("decoding release response: %w", err)
-	}
-	return &rel, nil
 }
 
-// downloadAsset fetches the asset and saves it to a temp file.
-func (g *GitHub) downloadAsset(ctx context.Context, asset *ghAsset) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.BrowserDownloadURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "github.com/lucasassuncao/apptide/1.0")
-	if g.token != "" {
-		req.Header.Set("Authorization", "Bearer "+g.token)
-	}
-
-	resp, err := g.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("downloading asset: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download returned %d", resp.StatusCode)
+// verify checks the download against a digest before anything is run or
+// copied into place.
+//
+// A digest in the config is authoritative and a mismatch fails the install.
+// Otherwise the release's own checksum file is used when it publishes one:
+// that only proves the download matches what the release says, which still
+// catches a truncated or tampered transfer.
+func (g *GitHub) verify(ctx context.Context, path string, asset ghrelease.Asset, all []ghrelease.Asset, spec *config.GitHubSpec) error {
+	if spec.Checksum != "" {
+		if err := ghrelease.VerifySHA256(path, spec.Checksum); err != nil {
+			return fmt.Errorf("verifying %s: %w", asset.Name, err)
+		}
+		return nil
 	}
 
-	ext := filepath.Ext(asset.Name)
-	tmp, err := os.CreateTemp("", "apptide-*"+ext)
-	if err != nil {
-		return "", fmt.Errorf("creating temp file: %w", err)
+	want, ok := g.client.ChecksumFor(ctx, all, asset.Name)
+	if !ok {
+		// Most repositories publish no checksums; refusing those would make
+		// the github source useless.
+		return nil
 	}
-	defer tmp.Close()
-
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		os.Remove(tmp.Name())
-		return "", fmt.Errorf("writing download: %w", err)
+	if err := ghrelease.VerifySHA256(path, want); err != nil {
+		return fmt.Errorf("verifying %s against the release checksums: %w", asset.Name, err)
 	}
-	return tmp.Name(), nil
+	return nil
 }
 
 // installFile routes to the appropriate strategy based on the asset's extension.
-func (g *GitHub) installFile(ctx context.Context, src, assetName, dir string, pkg config.Package) error {
+func (g *GitHub) installFile(ctx context.Context, src, assetName, dir string, app config.Application) error {
 	lower := strings.ToLower(assetName)
-	gh := pkg.GitHub // guaranteed non-nil by Install
+	gh := app.Package.GitHub // guaranteed non-nil by Install
+	base := binaryBaseName(app)
+
 	switch {
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		return g.extractTarGz(src, dir, pkg)
-	case strings.HasSuffix(lower, ".7z"):
-		return g.extract7z(ctx, src, dir, pkg)
-	case strings.HasSuffix(lower, ".zip"):
-		return g.extractZip(src, dir, pkg)
+	case archive.IsArchive(assetName):
+		return archive.Extract(ctx, src, assetName, dir, base)
 	case strings.HasSuffix(lower, ".exe"):
 		if gh.RunInstaller {
 			return runCtx(ctx, src, gh.Args...)
 		}
-		dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
-		return copyFile(src, dest)
+		return archive.CopyFile(src, filepath.Join(dir, base+".exe"))
 	case strings.HasSuffix(lower, ".msi"):
 		if gh.RunInstaller {
-			args := []string{"/i", src, "/quiet", "/norestart"}
-			return runCtx(ctx, "msiexec.exe", append(args, gh.Args...)...)
+			return runCtx(ctx, "msiexec.exe", msiexecArgs(src, gh)...)
 		}
-		dest := filepath.Join(dir, binaryBaseName(pkg)+".msi")
-		return copyFile(src, dest)
+		return archive.CopyFile(src, filepath.Join(dir, base+".msi"))
 	default:
-		dest := filepath.Join(dir, assetName)
-		return copyFile(src, dest)
-	}
-}
-
-// extractZip finds the best .exe inside the archive and copies it to dir.
-// If no .exe is found, it extracts the whole archive into a sub-directory.
-func (g *GitHub) extractZip(src, dir string, pkg config.Package) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return fmt.Errorf("opening zip: %w", err)
-	}
-	defer r.Close()
-
-	type candidate struct {
-		f     *zip.File
-		depth int
-	}
-	var exes []candidate
-	for _, f := range r.File {
-		if !f.FileInfo().IsDir() && strings.ToLower(filepath.Ext(f.Name)) == ".exe" {
-			exes = append(exes, candidate{f, strings.Count(f.Name, "/")})
-		}
-	}
-
-	if len(exes) == 0 {
-		// No .exe — extract everything into a sub-directory named after the package.
-		subDir := filepath.Join(dir, binaryBaseName(pkg))
-		return extractAll(r, subDir)
-	}
-
-	// Prefer the shallowest exe; break ties by name similarity with pkg.Name.
-	wantName := binaryBaseName(pkg) + ".exe"
-	sort.Slice(exes, func(i, j int) bool {
-		if exes[i].depth != exes[j].depth {
-			return exes[i].depth < exes[j].depth
-		}
-		ni := strings.ToLower(filepath.Base(exes[i].f.Name))
-		nj := strings.ToLower(filepath.Base(exes[j].f.Name))
-		if ni == wantName {
-			return true
-		}
-		if nj == wantName {
-			return false
-		}
-		return ni < nj
-	})
-
-	best := exes[0].f
-	dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
-
-	rc, err := best.Open()
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	out, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, rc)
-	return err
-}
-
-// extractAll dumps the full zip contents into destDir, stripping the top-level folder.
-func extractAll(r *zip.ReadCloser, destDir string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
-	}
-	for _, f := range r.File {
-		// Strip the first path component (common zip root folder).
-		rel := filepath.ToSlash(f.Name)
-		if idx := strings.Index(rel, "/"); idx >= 0 {
-			rel = rel[idx+1:]
-		}
-		if rel == "" {
-			continue
-		}
-		dest := filepath.Join(destDir, filepath.FromSlash(rel))
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(dest, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return err
-		}
-		rc, err := f.Open()
+		// An unknown format is kept under its own name; the user asked for this
+		// asset, so handing them the file is better than refusing it.
+		dest, err := safeDest(dir, assetName)
 		if err != nil {
 			return err
 		}
-		out, err := os.Create(dest)
-		if err != nil {
-			rc.Close()
-			return err
-		}
-		_, err = io.Copy(out, rc)
-		out.Close()
-		rc.Close()
-		if err != nil {
-			return err
-		}
+		return archive.CopyFile(src, dest)
 	}
-	return nil
 }
 
-// extractTarGz finds the best .exe inside a .tar.gz archive and copies it to dir.
-// If no .exe is found the full archive is extracted into a sub-directory.
-func (g *GitHub) extractTarGz(src, dir string, pkg config.Package) error {
-	f, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("opening tar.gz: %w", err)
+// safeDest keeps an asset name from steering the write out of dir. The name
+// comes from the release, and GitHub does not forbid a slash in it.
+func safeDest(dir, assetName string) (string, error) {
+	clean := filepath.Base(filepath.FromSlash(assetName))
+	if clean == "." || clean == string(filepath.Separator) || clean == "" {
+		return "", fmt.Errorf("asset name %q is not usable as a file name", assetName)
 	}
-	defer f.Close()
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("reading gzip stream: %w", err)
-	}
-	defer gz.Close()
-
-	tr := tar.NewReader(gz)
-
-	type tarCandidate struct {
-		header *tar.Header
-		depth  int
-	}
-	// First pass: collect all entries and find exe candidates.
-	var entries []tarEntry
-	var exes []tarCandidate
-
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("reading tar: %w", err)
-		}
-		if hdr.Typeflag == tar.TypeDir {
-			entries = append(entries, tarEntry{header: hdr})
-			continue
-		}
-		data, err := io.ReadAll(tr)
-		if err != nil {
-			return fmt.Errorf("reading tar entry %s: %w", hdr.Name, err)
-		}
-		entries = append(entries, tarEntry{header: hdr, content: data})
-		if strings.ToLower(filepath.Ext(hdr.Name)) == ".exe" {
-			exes = append(exes, tarCandidate{hdr, strings.Count(hdr.Name, "/")})
-		}
-	}
-
-	if len(exes) == 0 {
-		// No .exe — extract everything into a sub-directory.
-		subDir := filepath.Join(dir, binaryBaseName(pkg))
-		return extractTarEntries(entries, subDir)
-	}
-
-	wantName := binaryBaseName(pkg) + ".exe"
-	sort.Slice(exes, func(i, j int) bool {
-		if exes[i].depth != exes[j].depth {
-			return exes[i].depth < exes[j].depth
-		}
-		ni := strings.ToLower(filepath.Base(exes[i].header.Name))
-		nj := strings.ToLower(filepath.Base(exes[j].header.Name))
-		if ni == wantName {
-			return true
-		}
-		if nj == wantName {
-			return false
-		}
-		return ni < nj
-	})
-
-	bestName := exes[0].header.Name
-	dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if e.header.Name == bestName {
-			out, err := os.Create(dest)
-			if err != nil {
-				return err
-			}
-			_, err = out.Write(e.content)
-			out.Close()
-			return err
-		}
-	}
-	return fmt.Errorf("exe entry not found in tar: %s", bestName)
+	return filepath.Join(dir, clean), nil
 }
 
-type tarEntry struct {
-	header  *tar.Header
-	content []byte
+// msiexecArgs is the full msiexec argv for a downloaded .msi. Kept separate
+// from installFile so the command line can be asserted without running msiexec.
+func msiexecArgs(src string, gh *config.GitHubSpec) []string {
+	// gh.Args go last so a user-supplied switch can override what we chose.
+	return append([]string{"/i", src, "/quiet", "/norestart"}, gh.Args...)
 }
 
-// extractTarEntries writes all entries to destDir, stripping the top-level folder.
-func extractTarEntries(entries []tarEntry, destDir string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
-	}
-	for _, e := range entries {
-		rel := filepath.ToSlash(e.header.Name)
-		if idx := strings.Index(rel, "/"); idx >= 0 {
-			rel = rel[idx+1:]
-		}
-		if rel == "" {
-			continue
-		}
-		dest := filepath.Join(destDir, filepath.FromSlash(rel))
-		if e.header.Typeflag == tar.TypeDir {
-			os.MkdirAll(dest, 0o755) //nolint:errcheck
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return err
-		}
-		out, err := os.Create(dest)
-		if err != nil {
-			return err
-		}
-		_, err = out.Write(e.content)
-		out.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// extract7z extracts a .7z archive using the 7z.exe CLI tool.
-// Falls back to 7za.exe if 7z.exe is not found.
-func (g *GitHub) extract7z(ctx context.Context, src, dir string, pkg config.Package) error {
-	sevenZip, err := find7z()
-	if err != nil {
-		return err
-	}
-
-	tmp, err := os.MkdirTemp("", "apptide-7z-*")
-	if err != nil {
-		return fmt.Errorf("creating temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmp)
-
-	if err := runCtx(ctx, sevenZip, "x", src, "-o"+tmp, "-y"); err != nil {
-		return fmt.Errorf("7z extraction failed: %w", err)
-	}
-
-	// Walk extracted dir to find exe candidates.
-	type candidate struct {
-		path  string
-		depth int
-	}
-	var exes []candidate
-	_ = filepath.Walk(tmp, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		if strings.ToLower(filepath.Ext(p)) == ".exe" {
-			rel, _ := filepath.Rel(tmp, p)
-			exes = append(exes, candidate{p, strings.Count(rel, string(filepath.Separator))})
-		}
-		return nil
-	})
-
-	if len(exes) == 0 {
-		// No .exe — copy the whole extracted dir.
-		subDir := filepath.Join(dir, binaryBaseName(pkg))
-		return copyDir(tmp, subDir)
-	}
-
-	wantName := binaryBaseName(pkg) + ".exe"
-	sort.Slice(exes, func(i, j int) bool {
-		if exes[i].depth != exes[j].depth {
-			return exes[i].depth < exes[j].depth
-		}
-		ni := strings.ToLower(filepath.Base(exes[i].path))
-		nj := strings.ToLower(filepath.Base(exes[j].path))
-		if ni == wantName {
-			return true
-		}
-		if nj == wantName {
-			return false
-		}
-		return ni < nj
-	})
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	dest := filepath.Join(dir, binaryBaseName(pkg)+".exe")
-	return copyFile(exes[0].path, dest)
-}
-
-func find7z() (string, error) {
-	for _, name := range []string{"7z", "7za"} {
-		if p, err := exec.LookPath(name); err == nil {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("7z not found in PATH — install 7-Zip to extract .7z archives")
-}
-
-// copyDir recursively copies src directory to dst.
-func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		return copyFile(p, target)
-	})
-}
-
-// selectAsset picks the best release asset for Windows amd64.
-func selectAsset(assets []ghAsset, pkg config.Package) *ghAsset {
+// selectAsset picks the best release asset for this machine.
+func selectAsset(assets []ghrelease.Asset, app config.Application) *ghrelease.Asset {
 	// User-supplied glob takes priority.
-	if pkg.GitHub != nil && pkg.GitHub.AssetPattern != "" {
+	if app.Package.GitHub != nil && app.Package.GitHub.AssetPattern != "" {
 		for i := range assets {
-			if matched, _ := filepath.Match(pkg.GitHub.AssetPattern, assets[i].Name); matched {
+			if matched, _ := filepath.Match(app.Package.GitHub.AssetPattern, assets[i].Name); matched {
 				return &assets[i]
 			}
 		}
 	}
 
 	type scored struct {
-		asset *ghAsset
+		asset *ghrelease.Asset
 		score int
 	}
 	var candidates []scored
@@ -593,62 +336,46 @@ func selectAsset(assets []ghAsset, pkg config.Package) *ghAsset {
 	if len(candidates) == 0 {
 		return nil
 	}
-	sort.Slice(candidates, func(i, j int) bool {
+	// Stable: assets that tie on score keep the order the release lists them
+	// in, so the same repository resolves to the same asset on every run.
+	sort.SliceStable(candidates, func(i, j int) bool {
 		return candidates[i].score > candidates[j].score
 	})
 	return candidates[0].asset
 }
 
-// scoreAsset returns a relevance score for a Windows amd64 asset.
-// Returns 0 for assets that should be skipped entirely.
-func scoreAsset(name string) int {
-	lower := strings.ToLower(name)
+// scoreAsset returns a relevance score for an asset on the machine apptide is
+// running on. Returns 0 for assets that should be skipped entirely.
+func scoreAsset(name string) int { return scoreAssetFor(name, runtime.GOARCH) }
 
-	// Hard exclusions — checksums, signatures, non-Windows platforms.
-	for _, skip := range []string{
-		".sha256", ".sha512", ".sha1", ".md5",
-		".sig", ".asc", ".txt",
-		"checksums", "checksum",
-		".deb", ".rpm", ".dmg", ".pkg", ".apk",
-		"linux", "darwin", "macos", "android",
-		"-arm", "_arm", "arm64", "aarch64",
-		"source", "src",
-	} {
-		if strings.Contains(lower, skip) {
-			return 0
-		}
+// scoreAssetFor is scoreAsset with the target architecture spelled out, so the
+// choice can be tested for a machine other than the one running the test.
+//
+// It differs from ghrelease.ScoreBinary in what it prefers: an installed
+// application is better served by a portable archive than by an installer,
+// whereas self-update needs a bare executable it can swap in.
+func scoreAssetFor(name, goarch string) int {
+	if ghrelease.Excluded(name) {
+		return 0
+	}
+	archScore, ok := ghrelease.ArchScore(name, goarch)
+	if !ok {
+		return 0
 	}
 
-	score := 1 // baseline: any non-excluded asset gets a chance
-
-	// Windows platform indicators.
-	for _, win := range []string{"windows", "win64", "win32", "_win_", "-win-", ".win."} {
-		if strings.Contains(lower, win) {
-			score += 5
-			break
-		}
-	}
-
-	// x86-64 architecture indicators.
-	for _, arch := range []string{"x86_64", "amd64", "x64", "64bit", "64-bit"} {
-		if strings.Contains(lower, arch) {
-			score += 3
-			break
-		}
-	}
+	// Baseline of 1: any asset that could run here gets a chance.
+	score := 1 + ghrelease.WindowsScore(name) + archScore
 
 	// Format preference: zip/tar.gz/7z (portable) > exe > msi.
+	lower := strings.ToLower(name)
 	switch {
-	case strings.HasSuffix(lower, ".zip"):
+	case strings.HasSuffix(lower, ".zip"),
+		strings.HasSuffix(lower, ".tar.gz"),
+		strings.HasSuffix(lower, ".tgz"),
+		strings.HasSuffix(lower, ".7z"):
 		score += 2
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		score += 2
-	case strings.HasSuffix(lower, ".7z"):
-		score += 2
-	case strings.HasSuffix(lower, ".exe"):
-		score += 1
-	case strings.HasSuffix(lower, ".msi"):
-		score += 1
+	case strings.HasSuffix(lower, ".exe"), strings.HasSuffix(lower, ".msi"):
+		score++
 	}
 
 	return score

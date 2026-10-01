@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/lucasassuncao/apptide/internal/config"
-	"github.com/lucasassuncao/apptide/internal/installer"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
@@ -28,7 +27,7 @@ var initCmd = &cobra.Command{
 
 Templates:
   minimal   Bare structure with field reference (default)
-  example   One package per source type as a working starting point`,
+  example   One application per source type as a working starting point`,
 	Example: `  apptide init                         # minimal template → packages.yaml
   apptide init -i                      # interactive wizard
   apptide init -t example              # example template
@@ -57,12 +56,6 @@ func init() {
 
 // ── Wizard ────────────────────────────────────────────────────────────────────
 
-// wizardPkg holds everything the wizard collects for one package entry.
-type wizardPkg struct {
-	category string
-	pkg      config.Package
-}
-
 func runInitWizard() error {
 	clearScreen()
 
@@ -79,7 +72,11 @@ func runInitWizard() error {
 	// ── Sources ───────────────────────────────────────────────────────────────
 	pterm.DefaultSection.Println("Package Sources")
 
-	allSources := []string{installer.SourceWinget, installer.SourceScoop, installer.SourceChocolatey, installer.SourceGitHub}
+	allSources := make([]string, 0, len(config.AllSources()))
+	for _, s := range config.AllSources() {
+		allSources = append(allSources, string(s))
+	}
+
 	selectedSources, err := pterm.DefaultInteractiveMultiselect.
 		WithOptions(allSources).
 		WithDefaultText("Which package managers do you use?").
@@ -93,14 +90,14 @@ func runInitWizard() error {
 	}
 	pterm.Println()
 
-	// ── Packages ──────────────────────────────────────────────────────────────
-	pterm.DefaultSection.Println("Packages")
+	// ── Applications ──────────────────────────────────────────────────────────
+	pterm.DefaultSection.Println("Applications")
 
-	var entries []wizardPkg
+	var apps []config.Application
 	var categories []string // ordered list of category names seen so far
 
 	addNow, err := pterm.DefaultInteractiveConfirm.
-		WithDefaultText("Add packages now?").
+		WithDefaultText("Add applications now?").
 		WithDefaultValue(true).
 		Show()
 	if err != nil {
@@ -108,7 +105,7 @@ func runInitWizard() error {
 	}
 
 	if addNow {
-		if err := collectPackages(&entries, &categories, selectedSources, allSources); err != nil {
+		if err := collectApplications(&apps, &categories, selectedSources, allSources); err != nil {
 			return err
 		}
 	}
@@ -116,20 +113,19 @@ func runInitWizard() error {
 	// ── Write file ────────────────────────────────────────────────────────────
 	clearScreen()
 
-	if err := writeWizardResult(initOutputFile, entries, categories); err != nil {
+	if err := writeWizardResult(initOutputFile, apps); err != nil {
 		return err
 	}
 
-	pkgCount := len(entries)
 	pterm.Println()
 	pterm.Success.Printfln("%s created with %s",
 		pterm.Cyan(initOutputFile),
-		pterm.Bold.Sprintf("%d package(s)", pkgCount))
+		pterm.Bold.Sprintf("%d application(s)", len(apps)))
 	pterm.Println()
 	pterm.DefaultBox.
 		WithTitle("Next steps").
 		Println(strings.Join([]string{
-			"Review and edit: " + pterm.Cyan(initOutputFile),
+			"Review and edit: " + pterm.Gray("apptide edit"),
 			"List packages:   " + pterm.Gray("apptide list"),
 			"Install all:     " + pterm.Gray("apptide install"),
 			"Verify setup:    " + pterm.Gray("apptide verify"),
@@ -139,42 +135,44 @@ func runInitWizard() error {
 	return nil
 }
 
-// collectPackages runs the interactive loop that builds the entries slice.
-func collectPackages(entries *[]wizardPkg, categories *[]string, selectedSources, allSources []string) error {
+// collectApplications runs the interactive loop that builds the application list.
+func collectApplications(apps *[]config.Application, categories *[]string, selectedSources, allSources []string) error {
 	for {
 		pterm.Println()
-		pterm.DefaultSection.Printfln("Package %d", len(*entries)+1)
+		pterm.DefaultSection.Printfln("Application %d", len(*apps)+1)
 
 		catName, err := selectOrCreateCategory(categories)
 		if err != nil {
 			return err
 		}
 
-		pkg, err := promptPackage(selectedSources, allSources)
+		app, err := promptApplication(selectedSources, allSources)
 		if err != nil {
 			return err
 		}
-		if pkg == nil {
+		if app == nil {
 			continue
 		}
+		app.Category = catName
 
 		pterm.Println()
 		summaryLines := []string{
-			fmt.Sprintf("%s  [%s]  →  %s", pterm.Bold.Sprint(pkg.Name), pterm.Cyan(pkg.Source), pterm.Yellow(catName)),
-			packageIDLine(*pkg),
-			fmt.Sprintf("action: %s", pkg.Action),
+			fmt.Sprintf("%s  [%s]  →  %s",
+				pterm.Bold.Sprint(app.Name), pterm.Cyan(app.Source.String()), pterm.Yellow(catName)),
+			packageIDLine(*app),
+			fmt.Sprintf("action: %s", app.EffectiveAction()),
 		}
-		if pkg.Description != "" {
-			summaryLines = append(summaryLines, pterm.Gray(pkg.Description))
+		if app.Description != "" {
+			summaryLines = append(summaryLines, pterm.Gray(app.Description))
 		}
 		pterm.DefaultBox.
 			WithTitle(pterm.Green("✓ Added")).
 			Println(strings.Join(summaryLines, "\n"))
 
-		*entries = append(*entries, wizardPkg{category: catName, pkg: *pkg})
+		*apps = append(*apps, *app)
 
 		more, err := pterm.DefaultInteractiveConfirm.
-			WithDefaultText("Add another package?").
+			WithDefaultText("Add another application?").
 			WithDefaultValue(true).
 			Show()
 		if err != nil {
@@ -187,9 +185,9 @@ func collectPackages(entries *[]wizardPkg, categories *[]string, selectedSources
 	return nil
 }
 
-// promptPackage collects name, source, source-specific fields, description, and action.
-// Returns nil if the name is empty (caller should skip and continue).
-func promptPackage(selectedSources, allSources []string) (*config.Package, error) {
+// promptApplication collects name, source, source-specific fields, description
+// and action. Returns nil if the name is empty (caller should skip and continue).
+func promptApplication(selectedSources, allSources []string) (*config.Application, error) {
 	name, err := pterm.DefaultInteractiveTextInput.
 		WithDefaultText("Name").
 		Show()
@@ -214,9 +212,13 @@ func promptPackage(selectedSources, allSources []string) (*config.Package, error
 		return nil, err
 	}
 
-	pkg := config.Package{Name: name, Source: src, Action: "install"}
+	app := config.Application{
+		Name:   name,
+		Source: config.Sources{config.Source(src).Normalize()},
+		Action: config.ActionInstall,
+	}
 
-	if err := promptSourceFields(&pkg); err != nil {
+	if err := promptSourceFields(&app); err != nil {
 		return nil, err
 	}
 
@@ -226,53 +228,55 @@ func promptPackage(selectedSources, allSources []string) (*config.Package, error
 	if err != nil {
 		return nil, err
 	}
-	pkg.Description = strings.TrimSpace(desc)
+	app.Description = strings.TrimSpace(desc)
 
 	action, err := pterm.DefaultInteractiveSelect.
-		WithOptions([]string{"install", "skip"}).
+		WithOptions([]string{string(config.ActionInstall), string(config.ActionSkip)}).
 		WithDefaultText("Action").
 		Show()
 	if err != nil {
 		return nil, err
 	}
-	pkg.Action = action
+	app.Action = config.Action(action)
 
-	return &pkg, nil
+	return &app, nil
 }
 
-// promptSourceFields fills the source-specific fields of pkg interactively.
-func promptSourceFields(pkg *config.Package) error {
-	switch pkg.Source {
-	case installer.SourceWinget:
+// promptSourceFields fills the source-specific block of app interactively.
+func promptSourceFields(app *config.Application) error {
+	src, _ := app.Source.First()
+
+	switch src {
+	case config.SourceWinget:
 		id, err := pterm.DefaultInteractiveTextInput.
 			WithDefaultText("ID (winget package identifier)").
 			Show()
 		if err != nil {
 			return err
 		}
-		pkg.Winget = &config.WingetConfig{ID: strings.TrimSpace(id)}
+		app.Package.Winget = &config.WingetSpec{ID: strings.TrimSpace(id)}
 
-	case installer.SourceChocolatey:
+	case config.SourceChocolatey:
 		id, err := pterm.DefaultInteractiveTextInput.
 			WithDefaultText("ID (chocolatey package identifier)").
 			Show()
 		if err != nil {
 			return err
 		}
-		pkg.Chocolatey = &config.ChocolateyConfig{ID: strings.TrimSpace(id)}
+		app.Package.Chocolatey = &config.ChocolateySpec{ID: strings.TrimSpace(id)}
 
-	case installer.SourceScoop:
+	case config.SourceScoop:
 		id, err := pterm.DefaultInteractiveTextInput.
 			WithDefaultText("ID (scoop package identifier)").
 			Show()
 		if err != nil {
 			return err
 		}
-		pkg.Scoop = &config.ScoopConfig{ID: strings.TrimSpace(id)}
+		app.Package.Scoop = &config.ScoopSpec{ID: strings.TrimSpace(id)}
 
-	case installer.SourceGitHub:
+	case config.SourceGitHub:
 		repo, err := pterm.DefaultInteractiveTextInput.
-			WithDefaultText("Repo (owner/repo)").
+			WithDefaultText("ID (owner/repo)").
 			Show()
 		if err != nil {
 			return err
@@ -285,8 +289,8 @@ func promptSourceFields(pkg *config.Package) error {
 		if err != nil {
 			return err
 		}
-		pkg.GitHub = &config.GitHubConfig{Repo: strings.TrimSpace(repo)}
-		pkg.Version = strings.TrimSpace(ver)
+		app.Package.GitHub = &config.GitHubSpec{ID: strings.TrimSpace(repo)}
+		app.Version = strings.TrimSpace(ver)
 	}
 	return nil
 }
@@ -329,35 +333,25 @@ func selectOrCreateCategory(categories *[]string) (string, error) {
 }
 
 // packageIDLine returns a short identifier line for the summary box.
-func packageIDLine(pkg config.Package) string {
-	switch pkg.Source {
-	case installer.SourceWinget:
-		if pkg.Winget != nil && pkg.Winget.ID != "" {
-			return fmt.Sprintf("id: %s", pkg.Winget.ID)
-		}
-	case installer.SourceChocolatey:
-		if pkg.Chocolatey != nil && pkg.Chocolatey.ID != "" {
-			return fmt.Sprintf("id: %s", pkg.Chocolatey.ID)
-		}
-	case installer.SourceScoop:
-		if pkg.Scoop != nil && pkg.Scoop.ID != "" {
-			return fmt.Sprintf("id: %s", pkg.Scoop.ID)
-		}
-	case installer.SourceGitHub:
-		if pkg.GitHub != nil && pkg.GitHub.Repo != "" {
-			line := fmt.Sprintf("repo: %s", pkg.GitHub.Repo)
-			if pkg.Version != "" {
-				line += fmt.Sprintf("  @%s", pkg.Version)
-			}
-			return line
-		}
+func packageIDLine(app config.Application) string {
+	src, ok := app.Source.First()
+	if !ok {
+		return ""
 	}
-	return ""
+	id, ok := app.Package.ID(src)
+	if !ok || id == "" {
+		return ""
+	}
+	line := fmt.Sprintf("id: %s", id)
+	if src == config.SourceGitHub && app.Version != "" {
+		line += fmt.Sprintf("  @%s", app.Version)
+	}
+	return line
 }
 
-// writeWizardResult writes the collected packages to path as a YAML file.
-func writeWizardResult(path string, entries []wizardPkg, catOrder []string) error {
-	f, err := os.Create(path)
+// writeWizardResult writes the collected applications to path as a YAML file.
+func writeWizardResult(path string, apps []config.Application) error {
+	f, err := os.Create(path) //#nosec G304 -- the output path is the user's own choice
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", path, err)
 	}
@@ -365,180 +359,175 @@ func writeWizardResult(path string, entries []wizardPkg, catOrder []string) erro
 
 	fmt.Fprintf(f, "# Generated by apptide init on %s\n", time.Now().Format("2006-01-02"))
 	fmt.Fprintf(f, "# Run: apptide install\n\n")
+	fmt.Fprintf(f, "schema_version: %d\n\napplications:\n", config.SchemaVersion)
 
-	// Group entries by category, preserving catOrder.
-	groups := make(map[string][]config.Package)
-	for _, e := range entries {
-		groups[e.category] = append(groups[e.category], e.pkg)
+	for _, app := range apps {
+		writeApplicationEntry(f, app)
 	}
-
-	for _, cat := range catOrder {
-		pkgs, ok := groups[cat]
-		if !ok || len(pkgs) == 0 {
-			continue
-		}
-		fmt.Fprintf(f, "%s:\n", cat)
-		for _, pkg := range pkgs {
-			writePackageEntry(f, pkg)
-		}
-	}
-
-	// Packages whose category wasn't in catOrder (shouldn't happen, but be safe).
-	catOrderSet := make(map[string]bool, len(catOrder))
-	for _, c := range catOrder {
-		catOrderSet[c] = true
-	}
-	for _, e := range entries {
-		if !catOrderSet[e.category] {
-			catOrderSet[e.category] = true // write header only once
-			fmt.Fprintf(f, "%s:\n", e.category)
-			for _, pkg := range groups[e.category] {
-				writePackageEntry(f, pkg)
-			}
-		}
-	}
-
 	return nil
 }
 
 // ── Templates ─────────────────────────────────────────────────────────────────
 
-func runInitTemplate() error {
-	var content string
-	switch initTemplate {
-	case "example":
-		content = templateExample()
-	case "minimal", "":
-		content = templateMinimal()
-	default:
-		return fmt.Errorf("unknown template %q — valid: minimal, example", initTemplate)
+// initTemplates maps a template name to the function that renders it. Both
+// `init --template` and the document picker in `apptide edit` read this map,
+// so the two can never offer different templates.
+func initTemplates() map[string]func() string {
+	return map[string]func() string{
+		"minimal": templateMinimal,
+		"example": templateExample,
 	}
+}
 
-	if err := os.WriteFile(initOutputFile, []byte(content), 0o644); err != nil {
+// initTemplateNames lists the templates in a stable order.
+func initTemplateNames() []string { return sortedNames(initTemplates()) }
+
+func runInitTemplate() error {
+	name := initTemplate
+	if name == "" {
+		name = "minimal"
+	}
+	render, ok := initTemplates()[name]
+	if !ok {
+		return fmt.Errorf("unknown template %q — valid: %s", initTemplate, strings.Join(initTemplateNames(), ", "))
+	}
+	content := render()
+
+	if err := os.WriteFile(initOutputFile, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("writing %s: %w", initOutputFile, err)
 	}
 
-	pterm.Success.Printfln("%s created (template: %s)", pterm.Cyan(initOutputFile), initTemplate)
-	pterm.Info.Println("Edit the file, then run: apptide install")
+	pterm.Success.Printfln("%s created (template: %s)", pterm.Cyan(initOutputFile), name)
+	pterm.Info.Println("Edit the file with: apptide edit")
 	return nil
 }
 
 func templateMinimal() string {
-	return fmt.Sprintf(`# apptide packages config — generated %s
-# Docs: apptide --help
+	return fmt.Sprintf(`# apptide config — generated %s
+# Edit interactively with: apptide edit
 #
 # Fields reference:
 #   name          : display name (required)
-#   source        : winget | chocolatey | scoop | github (required)
+#   source        : one source, or a preference list — [winget, scoop, github]
+#                   later entries are fallbacks, used only when an earlier
+#                   source does not offer the package at all
+#   category      : free-form group, used by --category
 #   action        : install | uninstall | skip  (default: install)
-#   description   : informational
-#   no_upgrade    : true → skip upgrade when already installed
-#   post_install  : shell command to run after install (e.g. "git config ...")
+#   version       : exact version or "latest"
+#   skip_upgrade  : true → install if missing, never upgrade
+#   hooks         : pre_install / post_install shell commands
 #
-#   winget:      id: "Publisher.App"
-#   chocolatey:  id: "package-name"
-#   scoop:       id: "package-name"
-#   github:      repo: "owner/repo"   binary_name: "gh"   (+ version: "latest")
+#   package.winget:      id: "Publisher.App"
+#   package.chocolatey:  id: "package-name"
+#   package.scoop:       id: "package-name"
+#   package.github:      id: "owner/repo"   binary_name: "gh"
 
-MyApps:
+schema_version: %d
+
+applications:
   - name: "Example App"
+    category: MyApps
     source: winget
-    description: "Replace this with your first package"
-    action: install
-    winget:
-      id: "Publisher.AppId"
-`, time.Now().Format("2006-01-02"))
+    description: "Replace this with your first application"
+    package:
+      winget:
+        id: "Publisher.AppId"
+`, time.Now().Format("2006-01-02"), config.SchemaVersion)
 }
 
 func templateExample() string {
-	return fmt.Sprintf(`# apptide packages config — generated %s
-# One package per source type. Edit freely, then run: apptide install
+	return fmt.Sprintf(`# apptide config — generated %s
+# One application per source type. Edit with: apptide edit
 
-Development:
+schema_version: %d
+
+applications:
   - name: "Git"
+    category: Development
     source: winget
     description: "Distributed version control system"
-    action: install
-    winget:
-      id: "Git.Git"
+    package:
+      winget:
+        id: "Git.Git"
 
   - name: "Vim"
+    category: Development
     source: scoop
     description: "Highly configurable text editor"
-    action: install
-    scoop:
-      id: "vim"
+    package:
+      scoop:
+        id: "vim"
 
   - name: "Clink"
+    category: Development
     source: chocolatey
     description: "Powerful readline editing for cmd.exe"
-    action: install
-    chocolatey:
-      id: "clink"
+    package:
+      chocolatey:
+        id: "clink"
 
+  # Preference list: winget first, scoop and github as fallbacks.
+  # Whichever succeeds is recorded and used for upgrades and removal.
   - name: "Lazygit"
-    source: github
-    version: latest
+    category: Development
+    source: [winget, scoop, github]
     description: "Terminal UI for git"
-    action: install
-    github:
-      repo: "jesseduffield/lazygit"
+    package:
+      winget:
+        id: "JesseDuffield.lazygit"
+      scoop:
+        id: "lazygit"
+      github:
+        id: "jesseduffield/lazygit"
+        asset_pattern: "*Windows_x86_64.zip"
 
-Utilities:
   - name: "7-Zip"
+    category: Utilities
     source: winget
     description: "High-compression file archiver"
-    action: install
-    winget:
-      id: "7zip.7zip"
+    package:
+      winget:
+        id: "7zip.7zip"
 
   - name: "jq"
+    category: Utilities
     source: winget
     description: "Command-line JSON processor"
-    action: install
-    winget:
-      id: "jqlang.jq"
-`, time.Now().Format("2006-01-02"))
+    package:
+      winget:
+        id: "jqlang.jq"
+`, time.Now().Format("2006-01-02"), config.SchemaVersion)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// writePackageEntry writes a single YAML package block to w.
-func writePackageEntry(w *os.File, pkg config.Package) {
-	fmt.Fprintf(w, "  - name: %q\n", pkg.Name)
-	fmt.Fprintf(w, "    source: %s\n", pkg.Source)
-
-	if pkg.Description != "" {
-		fmt.Fprintf(w, "    description: %q\n", pkg.Description)
+// writeApplicationEntry writes a single YAML application block to w.
+func writeApplicationEntry(w *os.File, app config.Application) {
+	fmt.Fprintf(w, "  - name: %q\n", app.Name)
+	if app.Category != "" {
+		fmt.Fprintf(w, "    category: %s\n", app.Category)
 	}
-	fmt.Fprintf(w, "    action: %s\n", pkg.Action)
+	fmt.Fprintf(w, "    source: %s\n", app.Source.String())
 
-	switch pkg.Source {
-	case installer.SourceWinget:
-		if pkg.Winget != nil && pkg.Winget.ID != "" {
-			fmt.Fprintf(w, "    winget:\n")
-			fmt.Fprintf(w, "      id: %q\n", pkg.Winget.ID)
-		}
-	case installer.SourceChocolatey:
-		if pkg.Chocolatey != nil && pkg.Chocolatey.ID != "" {
-			fmt.Fprintf(w, "    chocolatey:\n")
-			fmt.Fprintf(w, "      id: %q\n", pkg.Chocolatey.ID)
-		}
-	case installer.SourceScoop:
-		if pkg.Scoop != nil && pkg.Scoop.ID != "" {
-			fmt.Fprintf(w, "    scoop:\n")
-			fmt.Fprintf(w, "      id: %q\n", pkg.Scoop.ID)
-		}
-	case installer.SourceGitHub:
-		if pkg.GitHub != nil && pkg.GitHub.Repo != "" {
-			v := pkg.Version
-			if v == "" {
-				v = "latest"
-			}
-			fmt.Fprintf(w, "    version: %q\n", v)
-			fmt.Fprintf(w, "    github:\n")
-			fmt.Fprintf(w, "      repo: %q\n", pkg.GitHub.Repo)
-		}
+	if app.Description != "" {
+		fmt.Fprintf(w, "    description: %q\n", app.Description)
+	}
+	if act := app.EffectiveAction(); act != config.ActionInstall {
+		fmt.Fprintf(w, "    action: %s\n", act)
+	}
+
+	src, ok := app.Source.First()
+	if !ok {
+		fmt.Fprintln(w)
+		return
+	}
+	if src == config.SourceGitHub && app.Version != "" {
+		fmt.Fprintf(w, "    version: %q\n", app.Version)
+	}
+	if id, ok := app.Package.ID(src); ok && id != "" {
+		fmt.Fprintf(w, "    package:\n")
+		fmt.Fprintf(w, "      %s:\n", src)
+		fmt.Fprintf(w, "        id: %q\n", id)
 	}
 
 	fmt.Fprintln(w)

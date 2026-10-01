@@ -10,65 +10,62 @@ import "github.com/lucasassuncao/apptide/internal/installer"
 
 ## Index
 
-- [Constants](<#constants>)
 - [Variables](<#variables>)
 - [func DefaultInstallDir\(\) string](<#DefaultInstallDir>)
 - [type Chocolatey](<#Chocolatey>)
   - [func NewChocolatey\(force bool\) \*Chocolatey](<#NewChocolatey>)
-  - [func \(c \*Chocolatey\) Check\(pkg config.Package\) \(bool, string\)](<#Chocolatey.Check>)
-  - [func \(c \*Chocolatey\) Install\(ctx context.Context, pkg config.Package\) error](<#Chocolatey.Install>)
+  - [func \(c \*Chocolatey\) Check\(app config.Application\) \(bool, string\)](<#Chocolatey.Check>)
+  - [func \(c \*Chocolatey\) Install\(ctx context.Context, app config.Application\) error](<#Chocolatey.Install>)
   - [func \(c \*Chocolatey\) IsAvailable\(\) bool](<#Chocolatey.IsAvailable>)
   - [func \(c \*Chocolatey\) Name\(\) string](<#Chocolatey.Name>)
-  - [func \(c \*Chocolatey\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#Chocolatey.Uninstall>)
+  - [func \(c \*Chocolatey\) Uninstall\(ctx context.Context, app config.Application\) error](<#Chocolatey.Uninstall>)
+- [type CommandError](<#CommandError>)
+  - [func \(e \*CommandError\) Error\(\) string](<#CommandError.Error>)
+  - [func \(e \*CommandError\) Unwrap\(\) error](<#CommandError.Unwrap>)
 - [type GitHub](<#GitHub>)
   - [func NewGitHub\(token, installDir string\) \*GitHub](<#NewGitHub>)
-  - [func \(g \*GitHub\) Check\(pkg config.Package\) \(bool, string\)](<#GitHub.Check>)
-  - [func \(g \*GitHub\) Install\(ctx context.Context, pkg config.Package\) error](<#GitHub.Install>)
+  - [func \(g \*GitHub\) Check\(app config.Application\) \(bool, string\)](<#GitHub.Check>)
+  - [func \(g \*GitHub\) Install\(ctx context.Context, app config.Application\) error](<#GitHub.Install>)
   - [func \(g \*GitHub\) IsAvailable\(\) bool](<#GitHub.IsAvailable>)
   - [func \(g \*GitHub\) Name\(\) string](<#GitHub.Name>)
-  - [func \(g \*GitHub\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#GitHub.Uninstall>)
+  - [func \(g \*GitHub\) Uninstall\(ctx context.Context, app config.Application\) error](<#GitHub.Uninstall>)
 - [type Installer](<#Installer>)
-  - [func Resolve\(source string, opts Options\) \(Installer, error\)](<#Resolve>)
+  - [func Resolve\(source config.Source, opts Options\) \(Installer, error\)](<#Resolve>)
 - [type Options](<#Options>)
 - [type Scoop](<#Scoop>)
   - [func NewScoop\(force bool\) \*Scoop](<#NewScoop>)
-  - [func \(s \*Scoop\) Check\(pkg config.Package\) \(bool, string\)](<#Scoop.Check>)
-  - [func \(s \*Scoop\) Install\(ctx context.Context, pkg config.Package\) error](<#Scoop.Install>)
+  - [func \(s \*Scoop\) Check\(app config.Application\) \(bool, string\)](<#Scoop.Check>)
+  - [func \(s \*Scoop\) Install\(ctx context.Context, app config.Application\) error](<#Scoop.Install>)
   - [func \(s \*Scoop\) IsAvailable\(\) bool](<#Scoop.IsAvailable>)
   - [func \(s \*Scoop\) Name\(\) string](<#Scoop.Name>)
-  - [func \(s \*Scoop\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#Scoop.Uninstall>)
+  - [func \(s \*Scoop\) Uninstall\(ctx context.Context, app config.Application\) error](<#Scoop.Uninstall>)
 - [type Winget](<#Winget>)
   - [func NewWinget\(force bool\) \*Winget](<#NewWinget>)
-  - [func \(w \*Winget\) Check\(pkg config.Package\) \(bool, string\)](<#Winget.Check>)
-  - [func \(w \*Winget\) Install\(ctx context.Context, pkg config.Package\) error](<#Winget.Install>)
+  - [func \(w \*Winget\) Check\(app config.Application\) \(bool, string\)](<#Winget.Check>)
+  - [func \(w \*Winget\) Install\(ctx context.Context, app config.Application\) error](<#Winget.Install>)
   - [func \(w \*Winget\) IsAvailable\(\) bool](<#Winget.IsAvailable>)
   - [func \(w \*Winget\) Name\(\) string](<#Winget.Name>)
-  - [func \(w \*Winget\) Uninstall\(ctx context.Context, pkg config.Package\) error](<#Winget.Uninstall>)
+  - [func \(w \*Winget\) Uninstall\(ctx context.Context, app config.Application\) error](<#Winget.Uninstall>)
 
-
-## Constants
-
-<a name="SourceWinget"></a>Source identifiers for all supported package sources.
-
-```go
-const (
-    SourceWinget     = "winget"
-    SourceChocolatey = "chocolatey"
-    SourceScoop      = "scoop"
-    SourceGitHub     = "github"
-)
-```
 
 ## Variables
 
-<a name="ErrAlreadyInstalled"></a>ErrAlreadyInstalled is returned when a package is already present and no\_upgrade is set.
+<a name="ErrAlreadyInstalled"></a>ErrAlreadyInstalled is returned when a package is already present and no action is needed.
 
 ```go
 var ErrAlreadyInstalled = errors.New("already installed")
 ```
 
+<a name="ErrNotOffered"></a>ErrNotOffered is returned when a source does not offer the application at all — a missing package id, or a repository/package the manager does not know.
+
+It is recorded distinctly from an install that was attempted and failed \(see state.ResultNotFound against state.ResultFailed\) so the attempt chain says which of the two happened. Both advance to the next source: listing several sources declares that any of them is acceptable. See RunInstall.
+
+```go
+var ErrNotOffered = errors.New("not offered by this source")
+```
+
 <a name="DefaultInstallDir"></a>
-## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L67>)
+## func [DefaultInstallDir](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L72>)
 
 ```go
 func DefaultInstallDir() string
@@ -97,19 +94,19 @@ func NewChocolatey(force bool) *Chocolatey
 
 
 <a name="Chocolatey.Check"></a>
-### func \(\*Chocolatey\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L71>)
+### func \(\*Chocolatey\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L112>)
 
 ```go
-func (c *Chocolatey) Check(pkg config.Package) (bool, string)
+func (c *Chocolatey) Check(app config.Application) (bool, string)
 ```
 
 
 
 <a name="Chocolatey.Install"></a>
-### func \(\*Chocolatey\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L24>)
+### func \(\*Chocolatey\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L59>)
 
 ```go
-func (c *Chocolatey) Install(ctx context.Context, pkg config.Package) error
+func (c *Chocolatey) Install(ctx context.Context, app config.Application) error
 ```
 
 
@@ -133,16 +130,49 @@ func (c *Chocolatey) Name() string
 
 
 <a name="Chocolatey.Uninstall"></a>
-### func \(\*Chocolatey\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L61>)
+### func \(\*Chocolatey\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/chocolatey.go#L90>)
 
 ```go
-func (c *Chocolatey) Uninstall(ctx context.Context, pkg config.Package) error
+func (c *Chocolatey) Uninstall(ctx context.Context, app config.Application) error
+```
+
+
+
+<a name="CommandError"></a>
+## type [CommandError](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/exec.go#L23-L27>)
+
+CommandError is a failed external command, carrying the tail of what it printed.
+
+Output used to be discarded because the TUI owns the display, which left "exit status 1" as the entire explanation for every failed install. Keeping it out of the terminal and in the error gives the reason without breaking the interface.
+
+```go
+type CommandError struct {
+    Name   string
+    Err    error
+    Output string
+}
+```
+
+<a name="CommandError.Error"></a>
+### func \(\*CommandError\) [Error](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/exec.go#L29>)
+
+```go
+func (e *CommandError) Error() string
+```
+
+
+
+<a name="CommandError.Unwrap"></a>
+### func \(\*CommandError\) [Unwrap](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/exec.go#L36>)
+
+```go
+func (e *CommandError) Unwrap() error
 ```
 
 
 
 <a name="GitHub"></a>
-## type [GitHub](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L22-L26>)
+## type [GitHub](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L20-L23>)
 
 GitHub downloads and installs packages from GitHub Releases.
 
@@ -153,7 +183,7 @@ type GitHub struct {
 ```
 
 <a name="NewGitHub"></a>
-### func [NewGitHub](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L39>)
+### func [NewGitHub](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L25>)
 
 ```go
 func NewGitHub(token, installDir string) *GitHub
@@ -162,25 +192,25 @@ func NewGitHub(token, installDir string) *GitHub
 
 
 <a name="GitHub.Check"></a>
-### func \(\*GitHub\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L60>)
+### func \(\*GitHub\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L100>)
 
 ```go
-func (g *GitHub) Check(pkg config.Package) (bool, string)
+func (g *GitHub) Check(app config.Application) (bool, string)
 ```
 
-Check looks for the binary or directory that Install would have created.
+Check looks for the binary or directory that Install would have created, and reports the release it came from when the marker is present. An install made before markers existed still reports installed, just without a version.
 
 <a name="GitHub.Install"></a>
-### func \(\*GitHub\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L76>)
+### func \(\*GitHub\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L123>)
 
 ```go
-func (g *GitHub) Install(ctx context.Context, pkg config.Package) error
+func (g *GitHub) Install(ctx context.Context, app config.Application) error
 ```
 
 
 
 <a name="GitHub.IsAvailable"></a>
-### func \(\*GitHub\) [IsAvailable](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L48>)
+### func \(\*GitHub\) [IsAvailable](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L33>)
 
 ```go
 func (g *GitHub) IsAvailable() bool
@@ -189,7 +219,7 @@ func (g *GitHub) IsAvailable() bool
 
 
 <a name="GitHub.Name"></a>
-### func \(\*GitHub\) [Name](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L47>)
+### func \(\*GitHub\) [Name](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L32>)
 
 ```go
 func (g *GitHub) Name() string
@@ -198,16 +228,18 @@ func (g *GitHub) Name() string
 
 
 <a name="GitHub.Uninstall"></a>
-### func \(\*GitHub\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L108>)
+### func \(\*GitHub\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/github.go#L186>)
 
 ```go
-func (g *GitHub) Uninstall(ctx context.Context, pkg config.Package) error
+func (g *GitHub) Uninstall(ctx context.Context, app config.Application) error
 ```
 
+Uninstall deletes what Install placed: the binary or extracted directory, plus the marker.
 
+With run\_installer the program was handed to a Windows installer and is registered in Add/Remove Programs; deleting our files would leave it installed but untracked, so that case refuses with instructions instead.
 
 <a name="Installer"></a>
-## type [Installer](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L25-L36>)
+## type [Installer](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L28-L40>)
 
 Installer handles install/uninstall for a specific package source.
 
@@ -217,26 +249,27 @@ type Installer interface {
     Name() string
     // IsAvailable reports whether the underlying package manager is reachable.
     IsAvailable() bool
-    // Install installs or upgrades the package.
-    Install(ctx context.Context, pkg config.Package) error
-    // Uninstall removes the package.
-    Uninstall(ctx context.Context, pkg config.Package) error
-    // Check reports whether the package is currently installed and its version (if detectable).
-    Check(pkg config.Package) (installed bool, version string)
+    // Install installs or upgrades the application.
+    Install(ctx context.Context, app config.Application) error
+    // Uninstall removes the application.
+    Uninstall(ctx context.Context, app config.Application) error
+    // Check reports whether the application is currently installed and its
+    // version (if detectable).
+    Check(app config.Application) (installed bool, version string)
 }
 ```
 
 <a name="Resolve"></a>
-### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L46>)
+### func [Resolve](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L50>)
 
 ```go
-func Resolve(source string, opts Options) (Installer, error)
+func Resolve(source config.Source, opts Options) (Installer, error)
 ```
 
-Resolve returns the correct Installer for the given source name.
+Resolve returns the correct Installer for the given source.
 
 <a name="Options"></a>
-## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L39-L43>)
+## type [Options](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/installer.go#L43-L47>)
 
 Options configures source\-specific settings passed to Resolve.
 
@@ -249,7 +282,7 @@ type Options struct {
 ```
 
 <a name="Scoop"></a>
-## type [Scoop](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L13>)
+## type [Scoop](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L14>)
 
 Scoop installs packages via the Scoop package manager.
 
@@ -260,7 +293,7 @@ type Scoop struct {
 ```
 
 <a name="NewScoop"></a>
-### func [NewScoop](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L15>)
+### func [NewScoop](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L16>)
 
 ```go
 func NewScoop(force bool) *Scoop
@@ -269,25 +302,29 @@ func NewScoop(force bool) *Scoop
 
 
 <a name="Scoop.Check"></a>
-### func \(\*Scoop\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L60>)
+### func \(\*Scoop\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L111>)
 
 ```go
-func (s *Scoop) Check(pkg config.Package) (bool, string)
+func (s *Scoop) Check(app config.Application) (bool, string)
 ```
 
+Check asks scoop what it has, via the JSON of \`scoop export\`.
 
+The human table from \`scoop list\` cannot be parsed by splitting on whitespace: an app whose install failed has an empty Version and Source, so the fields shift left and the Updated timestamp is read as the version.
+
+An app scoop itself marks as failed is reported as not installed, because that is what it is — the entry is a record of the attempt, not of a working program.
 
 <a name="Scoop.Install"></a>
-### func \(\*Scoop\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L24>)
+### func \(\*Scoop\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L64>)
 
 ```go
-func (s *Scoop) Install(ctx context.Context, pkg config.Package) error
+func (s *Scoop) Install(ctx context.Context, app config.Application) error
 ```
 
 
 
 <a name="Scoop.IsAvailable"></a>
-### func \(\*Scoop\) [IsAvailable](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L19>)
+### func \(\*Scoop\) [IsAvailable](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L20>)
 
 ```go
 func (s *Scoop) IsAvailable() bool
@@ -296,7 +333,7 @@ func (s *Scoop) IsAvailable() bool
 
 
 <a name="Scoop.Name"></a>
-### func \(\*Scoop\) [Name](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L17>)
+### func \(\*Scoop\) [Name](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L18>)
 
 ```go
 func (s *Scoop) Name() string
@@ -305,10 +342,10 @@ func (s *Scoop) Name() string
 
 
 <a name="Scoop.Uninstall"></a>
-### func \(\*Scoop\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L50>)
+### func \(\*Scoop\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/scoop.go#L91>)
 
 ```go
-func (s *Scoop) Uninstall(ctx context.Context, pkg config.Package) error
+func (s *Scoop) Uninstall(ctx context.Context, app config.Application) error
 ```
 
 
@@ -334,19 +371,19 @@ func NewWinget(force bool) *Winget
 
 
 <a name="Winget.Check"></a>
-### func \(\*Winget\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L52>)
+### func \(\*Winget\) [Check](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L58>)
 
 ```go
-func (w *Winget) Check(pkg config.Package) (bool, string)
+func (w *Winget) Check(app config.Application) (bool, string)
 ```
 
 
 
 <a name="Winget.Install"></a>
-### func \(\*Winget\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L25>)
+### func \(\*Winget\) [Install](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L34>)
 
 ```go
-func (w *Winget) Install(ctx context.Context, pkg config.Package) error
+func (w *Winget) Install(ctx context.Context, app config.Application) error
 ```
 
 
@@ -370,10 +407,10 @@ func (w *Winget) Name() string
 
 
 <a name="Winget.Uninstall"></a>
-### func \(\*Winget\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L39>)
+### func \(\*Winget\) [Uninstall](<https://github.com/lucasassuncao/apptide/blob/main/internal/installer/winget.go#L47>)
 
 ```go
-func (w *Winget) Uninstall(ctx context.Context, pkg config.Package) error
+func (w *Winget) Uninstall(ctx context.Context, app config.Application) error
 ```
 
 

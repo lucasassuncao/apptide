@@ -33,7 +33,7 @@
       <div class="feature-card">
         <div class="icon">📦</div>
         <h3>Multi-source support</h3>
-        <p>Install packages from winget, chocolatey, scoop, GitHub releases, and direct URLs — all in one config.</p>
+        <p>Install applications from winget, chocolatey, scoop, and GitHub releases — all in one config, with a preference list per application.</p>
       </div>
       <div class="feature-card">
         <div class="icon">📄</div>
@@ -48,12 +48,12 @@
       <div class="feature-card">
         <div class="icon">🪝</div>
         <h3>Lifecycle hooks</h3>
-        <p>Run shell commands before (<code>pre_install</code>) and after (<code>post_install</code>) each package action.</p>
+        <p>Run shell commands around each action — <code>pre_install</code> / <code>post_install</code> for installs, <code>pre_uninstall</code> / <code>post_uninstall</code> for removals.</p>
       </div>
       <div class="feature-card">
         <div class="icon">🔄</div>
         <h3>Self-updating</h3>
-        <p>AppTide can detect and install its own updates automatically with <code>apptide selfupdate</code>.</p>
+        <p>AppTide can detect and install its own updates automatically with <code>apptide self-update</code>.</p>
       </div>
       <div class="feature-card">
         <div class="icon">✅</div>
@@ -68,12 +68,27 @@
       <div class="feature-card">
         <div class="icon">📊</div>
         <h3>Structured output</h3>
-        <p>All commands support <code>--output json</code> for scripting and CI/CD integration.</p>
+        <p><code>list</code>, <code>verify</code>, <code>doctor</code>, <code>install</code> and <code>adopt --list</code> support <code>--output json</code> for scripting and CI/CD integration.</p>
       </div>
       <div class="feature-card">
         <div class="icon">🔍</div>
-        <h3>Category filtering</h3>
-        <p>Use <code>--category</code> to scope <code>install</code> and <code>verify</code> to a single group of packages.</p>
+        <h3>Category &amp; tag filtering</h3>
+        <p>Use <code>--category</code> or <code>--tags</code> to scope <code>install</code> and <code>verify</code> to part of your config.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🖥</div>
+        <h3>Interactive browser</h3>
+        <p><code>apptide tui</code> shows config, installed packages, available upgrades and drift side by side — install and remove from the same screen.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">✏️</div>
+        <h3>Interactive editor</h3>
+        <p><code>apptide edit</code> opens the YAML in a two-panel TUI with per-field hints and validation on save.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔐</div>
+        <h3>Ownership tracking</h3>
+        <p>AppTide records which source installed each application, so upgrades and removals never go through the wrong manager.</p>
       </div>
     </div>
   </section>
@@ -120,6 +135,8 @@ apptide validate          <span class="cmt"># validate your config</span>
 apptide list              <span class="cmt"># list all configured packages</span>
 apptide install           <span class="cmt"># install all packages</span>
 apptide verify            <span class="cmt"># check which packages are installed</span>
+apptide tui               <span class="cmt"># browse config and machine side by side</span>
+apptide edit              <span class="cmt"># edit the config in an interactive TUI</span>
 apptide doctor            <span class="cmt"># diagnose system health</span>
 apptide doctor --install-missing  <span class="cmt"># install any missing package managers</span></pre>
     </div>
@@ -134,24 +151,43 @@ apptide doctor --install-missing  <span class="cmt"># install any missing packag
   - <span class="str">./configs/gaming.yaml</span>
   - <span class="str">./configs/work.yaml</span>
 
-<span class="key">Development</span>:
+<span class="key">schema_version</span>: <span class="val">2</span>
+
+<span class="key">settings</span>:
+  <span class="key">install_dir</span>: <span class="str">"${LOCALAPPDATA}\apptide\bin"</span>
+  <span class="key">add_to_path</span>: <span class="val">true</span>
+
+<span class="key">applications</span>:
   - <span class="key">name</span>: <span class="str">"VS Code"</span>
+    <span class="key">category</span>: <span class="val">Development</span>
     <span class="key">source</span>: <span class="val">winget</span>
-    <span class="key">id</span>: <span class="str">"Microsoft.VisualStudioCode"</span>
-    <span class="key">action</span>: <span class="val">install</span>
+    <span class="key">package</span>:
+      <span class="key">winget</span>:
+        <span class="key">id</span>: <span class="str">"Microsoft.VisualStudioCode"</span>
 
+  <span class="cmt"># Preference list: winget first, scoop and github as fallbacks.</span>
+  <span class="cmt"># Whichever succeeds is used for upgrades and removal.</span>
   - <span class="key">name</span>: <span class="str">"Lazygit"</span>
-    <span class="key">source</span>: <span class="val">github</span>
-    <span class="key">repo</span>: <span class="str">"jesseduffield/lazygit"</span>
-    <span class="key">version</span>: <span class="str">"latest"</span>
-    <span class="key">action</span>: <span class="val">install</span>
-    <span class="key">post_install</span>: <span class="str">"echo Lazygit ready"</span>
+    <span class="key">category</span>: <span class="val">Development</span>
+    <span class="key">source</span>: [<span class="val">winget</span>, <span class="val">scoop</span>, <span class="val">github</span>]
+    <span class="key">package</span>:
+      <span class="key">winget</span>:
+        <span class="key">id</span>: <span class="str">"JesseDuffield.lazygit"</span>
+      <span class="key">scoop</span>:
+        <span class="key">id</span>: <span class="str">"lazygit"</span>
+      <span class="key">github</span>:
+        <span class="key">id</span>: <span class="str">"jesseduffield/lazygit"</span>
+        <span class="key">asset_pattern</span>: <span class="str">"*Windows_x86_64.zip"</span>
+    <span class="key">hooks</span>:
+      <span class="key">post_install</span>: <span class="str">"echo Lazygit ready"</span>
 
-<span class="key">CLITools</span>:
   - <span class="key">name</span>: <span class="str">"jq"</span>
+    <span class="key">category</span>: <span class="val">CLITools</span>
     <span class="key">source</span>: <span class="val">winget</span>
-    <span class="key">id</span>: <span class="str">"jqlang.jq"</span>
-    <span class="key">action</span>: <span class="val">install</span></pre>
+    <span class="key">tags</span>: [<span class="val">cli</span>]
+    <span class="key">package</span>:
+      <span class="key">winget</span>:
+        <span class="key">id</span>: <span class="str">"jqlang.jq"</span></pre>
     </div>
   </section>
 
@@ -166,16 +202,21 @@ apptide doctor --install-missing  <span class="cmt"># install any missing packag
         </tr>
       </thead>
       <tbody>
-        <tr><td>apptide init</td><td>Create a packages.yaml from a minimal template or interactive wizard</td></tr>
-        <tr><td>apptide list</td><td>Display all configured packages and their metadata</td></tr>
-        <tr><td>apptide install</td><td>Install or update all packages marked with <code>action: install</code></td></tr>
-        <tr><td>apptide install --category Development</td><td>Install packages in a specific category only</td></tr>
-        <tr><td>apptide verify</td><td>Check which packages are installed and detect version mismatches</td></tr>
-        <tr><td>apptide validate</td><td>Verify YAML configuration syntax and completeness</td></tr>
+        <tr><td>apptide init</td><td>Create a packages.yaml from a template or interactive wizard</td></tr>
+        <tr><td>apptide list</td><td>Display all configured applications and their metadata</td></tr>
+        <tr><td>apptide install</td><td>Install or upgrade every application marked with <code>action: install</code></td></tr>
+        <tr><td>apptide install --category Development</td><td>Install applications in a specific category only</td></tr>
+        <tr><td>apptide install --tags work</td><td>Install only applications carrying a given tag</td></tr>
+        <tr><td>apptide verify</td><td>Check which applications are installed and detect version mismatches</td></tr>
+        <tr><td>apptide validate</td><td>Check the config for errors and for fields a source will ignore</td></tr>
+        <tr><td>apptide tui</td><td>Browse config, installed packages, upgrades and drift side by side</td></tr>
+        <tr><td>apptide edit</td><td>Edit the configuration file in an interactive TUI</td></tr>
+        <tr><td>apptide adopt --list</td><td>Show every tracked application and the source that owns it</td></tr>
+        <tr><td>apptide adopt &lt;app&gt; --source &lt;src&gt;</td><td>Record which source manages an application</td></tr>
         <tr><td>apptide doctor</td><td>Diagnose system health and check package manager availability</td></tr>
         <tr><td>apptide doctor --install-missing</td><td>Automatically install any missing package managers (winget, scoop, chocolatey)</td></tr>
-        <tr><td>apptide export</td><td>Export current system state as a packages.yaml template</td></tr>
-        <tr><td>apptide selfupdate</td><td>Download and apply the latest AppTide release</td></tr>
+        <tr><td>apptide export</td><td>Export currently installed packages as a packages.yaml</td></tr>
+        <tr><td>apptide self-update</td><td>Download and apply the latest AppTide release</td></tr>
       </tbody>
     </table>
   </section>

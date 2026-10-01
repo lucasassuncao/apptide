@@ -2,6 +2,7 @@ package installer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -14,71 +15,134 @@ type Scoop struct{ force bool }
 
 func NewScoop(force bool) *Scoop { return &Scoop{force: force} }
 
-func (s *Scoop) Name() string { return SourceScoop }
+func (s *Scoop) Name() string { return string(config.SourceScoop) }
 
 func (s *Scoop) IsAvailable() bool {
 	_, err := exec.LookPath("scoop")
 	return err == nil
 }
 
-func (s *Scoop) Install(ctx context.Context, pkg config.Package) error {
-	if pkg.Scoop == nil || pkg.Scoop.ID == "" {
-		return fmt.Errorf("missing 'scoop.id' for package %q", pkg.Name)
+// spec returns the scoop block, or ErrNotOffered when the application does not
+// declare one.
+func (s *Scoop) spec(app config.Application) (*config.ScoopSpec, error) {
+	if app.Package.Scoop == nil || app.Package.Scoop.ID == "" {
+		return nil, fmt.Errorf("%w: no 'package.scoop.id' for %q", ErrNotOffered, app.Name)
+	}
+	return app.Package.Scoop, nil
+}
+
+// scoopFlags builds the trailing flags shared by install and update.
+func scoopFlags(spec *config.ScoopSpec) []string {
+	var args []string
+	if spec.Global {
+		args = append(args, "--global")
+	}
+	if spec.Arch != "" {
+		args = append(args, "--arch", spec.Arch)
+	}
+	// spec.Args go last so a user-supplied flag can override what we chose.
+	return append(args, spec.Args...)
+}
+
+// scoopArgs is the full scoop argv for verb ("install" or "update"). Kept
+// separate from Install so the command line can be asserted without running
+// scoop.
+func scoopArgs(verb string, spec *config.ScoopSpec) []string {
+	return append([]string{verb, spec.ID}, scoopFlags(spec)...)
+}
+
+// scoopUninstallArgs is the full scoop argv for a removal. Only --global
+// carries over: scoop rejects --arch here, and spec.Args are install flags.
+func scoopUninstallArgs(spec *config.ScoopSpec) []string {
+	args := []string{"uninstall", spec.ID}
+	if spec.Global {
+		args = append(args, "--global")
+	}
+	return args
+}
+
+func (s *Scoop) Install(ctx context.Context, app config.Application) error {
+	spec, err := s.spec(app)
+	if err != nil {
+		return err
 	}
 
-	if pkg.Scoop.Bucket != "" {
+	if spec.Bucket != "" {
 		// Ensure the bucket is available; scoop is idempotent for already-added buckets.
-		if err := runCtx(ctx, "scoop", "bucket", "add", pkg.Scoop.Bucket); err != nil {
-			return fmt.Errorf("adding scoop bucket %q: %w", pkg.Scoop.Bucket, err)
+		if err := runCtx(ctx, "scoop", "bucket", "add", spec.Bucket); err != nil {
+			return fmt.Errorf("adding scoop bucket %q: %w", spec.Bucket, err)
 		}
 	}
 
-	if s.isInstalled(pkg) {
-		if pkg.NoUpgrade {
+	if s.isInstalled(app) {
+		if app.SkipUpgrade {
 			return ErrAlreadyInstalled
 		}
 		if s.force {
 			// Scoop has no --force flag; uninstall then reinstall.
-			_ = runCtx(ctx, "scoop", "uninstall", pkg.Scoop.ID)
-			return runScoop(ctx, append([]string{"install", pkg.Scoop.ID}, pkg.Scoop.Args...)...)
+			_ = runCtx(ctx, "scoop", scoopUninstallArgs(spec)...)
+			return runScoop(ctx, scoopArgs("install", spec)...)
 		}
-		return runScoop(ctx, append([]string{"update", pkg.Scoop.ID}, pkg.Scoop.Args...)...)
+		return runScoop(ctx, scoopArgs("update", spec)...)
 	}
-	return runScoop(ctx, append([]string{"install", pkg.Scoop.ID}, pkg.Scoop.Args...)...)
+	return runScoop(ctx, scoopArgs("install", spec)...)
 }
 
-func (s *Scoop) Uninstall(ctx context.Context, pkg config.Package) error {
-	if pkg.Scoop == nil || pkg.Scoop.ID == "" {
-		return fmt.Errorf("missing 'scoop.id' for package %q", pkg.Name)
+func (s *Scoop) Uninstall(ctx context.Context, app config.Application) error {
+	spec, err := s.spec(app)
+	if err != nil {
+		return err
 	}
-	if !s.isInstalled(pkg) {
+	if !s.isInstalled(app) {
 		return ErrAlreadyInstalled
 	}
-	return runCtx(ctx, "scoop", "uninstall", pkg.Scoop.ID)
+	return runCtx(ctx, "scoop", scoopUninstallArgs(spec)...)
 }
 
-func (s *Scoop) Check(pkg config.Package) (bool, string) {
-	if pkg.Scoop == nil || pkg.Scoop.ID == "" {
-		return false, ""
-	}
-	out, err := exec.Command("scoop", "list").CombinedOutput()
+// Check asks scoop what it has, via the JSON of `scoop export`.
+//
+// The human table from `scoop list` cannot be parsed by splitting on
+// whitespace: an app whose install failed has an empty Version and Source, so
+// the fields shift left and the Updated timestamp is read as the version.
+//
+// An app scoop itself marks as failed is reported as not installed, because
+// that is what it is — the entry is a record of the attempt, not of a working
+// program.
+func (s *Scoop) Check(app config.Application) (bool, string) {
+	spec, err := s.spec(app)
 	if err != nil {
 		return false, ""
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 0 && strings.EqualFold(fields[0], pkg.Scoop.ID) {
-			if len(fields) > 1 {
-				return true, fields[1]
-			}
-			return true, ""
+	out, err := exec.Command("scoop", "export").Output()
+	if err != nil {
+		return false, ""
+	}
+
+	var export struct {
+		Apps []struct {
+			Name    string `json:"Name"`
+			Version string `json:"Version"`
+			Info    string `json:"Info"`
+		} `json:"apps"`
+	}
+	if err := json.Unmarshal(out, &export); err != nil {
+		return false, ""
+	}
+
+	for _, a := range export.Apps {
+		if !strings.EqualFold(a.Name, spec.ID) {
+			continue
 		}
+		if strings.Contains(strings.ToLower(a.Info), "failed") {
+			return false, ""
+		}
+		return true, a.Version
 	}
 	return false, ""
 }
 
-func (s *Scoop) isInstalled(pkg config.Package) bool {
-	installed, _ := s.Check(pkg)
+func (s *Scoop) isInstalled(app config.Application) bool {
+	installed, _ := s.Check(app)
 	return installed
 }
 
@@ -86,10 +150,9 @@ func (s *Scoop) isInstalled(pkg config.Package) bool {
 //  1. Strip the noisy self-update block ("Updating Scoop..." … "Scoop was updated successfully!")
 //  2. Detect "already at latest version" and return ErrAlreadyInstalled.
 func runScoop(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, "scoop", args...)
-	out, err := cmd.CombinedOutput()
+	out, err := run(ctx, "scoop", args...)
 
-	filtered := filterScoopOutput(string(out))
+	filtered := filterScoopOutput(out)
 
 	lower := strings.ToLower(filtered)
 	if strings.Contains(lower, "latest version)") ||
@@ -97,6 +160,7 @@ func runScoop(ctx context.Context, args ...string) error {
 		return ErrAlreadyInstalled
 	}
 
+	// err already carries the tail of the output via CommandError.
 	return err
 }
 

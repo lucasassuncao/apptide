@@ -32,7 +32,7 @@ func AddToUserPath(dir string) error {
 			`if ($p -notlike '*%s*') { [Environment]::SetEnvironmentVariable('Path',"$p;%s",'User') }`,
 		dir, dir,
 	)
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script) //#nosec G204 -- fixed program; the script only interpolates a directory apptide chose
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

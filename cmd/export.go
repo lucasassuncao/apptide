@@ -12,8 +12,8 @@ var exportCmd = &cobra.Command{
 	Short: "Generate a packages.yaml from all currently installed packages",
 	Long: `Queries winget, scoop, and chocolatey for installed packages and writes
 a packages.yaml that can be used with 'apptide install' to replicate the setup.`,
-	Example: `  apptide export                      # print to stdout
-  apptide export --output backup.yaml  # write to file`,
+	Example: `  apptide export                   # print to stdout
+  apptide export --out backup.yaml # write to file`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runner.Export(runner.ExportOptions{
 			Output: exportOutput,
@@ -23,5 +23,7 @@ a packages.yaml that can be used with 'apptide install' to replicate the setup.`
 
 func init() {
 	rootCmd.AddCommand(exportCmd)
-	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "write to this file instead of stdout")
+	// Not --output/-o: that is the global table|json flag, and shadowing it
+	// here meant `apptide export -o json` quietly wrote a file named "json".
+	exportCmd.Flags().StringVar(&exportOutput, "out", "", "write to this file instead of stdout")
 }

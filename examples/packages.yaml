@@ -1,49 +1,176 @@
-# apptide — unified package config
+# apptide — unified application config
 #
-# Common fields (all sources):
-#   name         : display name (required)
-#   source       : winget | chocolatey | scoop | github | third_party (required)
-#   action       : install | uninstall | skip  (default: install)
-#   version      : specific version or "latest" (default: latest)
-#   description  : informational only
-#   info_url     : project homepage
-#   no_upgrade   : true → skip upgrade when already installed
-#   pre_install  : shell command run before the action — non-zero exit aborts install
-#   post_install : shell command run after success   — non-zero exit is a warning only
+# Top-level keys:
+#   import         : list of other config files to merge in. Paths are relative
+#                    to THIS file. Recursive; circular imports are an error.
+#   schema_version : 2 — the format this build writes and understands
+#   settings       : run-wide options; read only from the file named on the
+#                    command line, and always overridden by a flag.
+#     install_dir  : where github binaries land
+#                    (default: %LOCALAPPDATA%\apptide\bin). ${VAR} is expanded.
+#     add_to_path  : add install_dir to the user PATH after installing a binary
+#     github_token : raises the GitHub API rate limit — write it as
+#                    ${GITHUB_TOKEN} and keep the value out of the file
+#   defaults       : applied to every application in THIS file that omits the
+#                    field — category, source, action, tags. File-scoped: an
+#                    imported file never inherits the importer's defaults.
+#   applications   : the list below
 #
-# Source-specific blocks:
+# Application fields (all sources):
+#   name           : display name (required). Also the key under which apptide
+#                    records which source installed the application.
+#   source         : one source, or a preference list — [winget, scoop, github].
+#                    Later entries are fallbacks, tried only when an earlier
+#                    source does not offer the package at all. The order applies
+#                    to the FIRST install: afterwards the application stays bound
+#                    to the source that installed it, for upgrades and removal.
+#                    Use 'apptide adopt' to change that binding.
+#   package        : one block per source listed above (see below) — required
+#   category       : free-form group, used by --category. Applications without
+#                    one are grouped under "Uncategorized".
+#   action         : install | uninstall | skip  (default: install)
+#                    uninstall is not supported for the github source
+#   version        : specific version or "latest" (default: latest)
+#                    ignored by scoop, which cannot pin versions
+#   description    : informational only
+#   info_url       : project homepage
+#   tags           : free-form labels, used by --tags
+#   skip_upgrade   : true → install if missing, never upgrade
+#                    no effect when github is the only source
+#   optional       : true → a failure here does not fail the whole run
+#   requires_admin : true → needs elevation. apptide otherwise guesses from the
+#                    source and its options, and the guess is wrong in both
+#                    directions: a portable chocolatey package needs nothing,
+#                    and a winget installer can demand elevation silently.
+#   hooks          : shell commands run around the action, via cmd /C.
+#                    Install and uninstall have their own pair, so a command
+#                    named for installing never runs on removal.
+#     pre_install    : run before an install/upgrade — non-zero exit aborts it
+#     post_install   : run after a successful install — non-zero exit warns
+#     pre_uninstall  : run before a removal          — non-zero exit aborts it
+#     post_uninstall : run after a successful removal — non-zero exit warns
+#
+# Source-specific blocks, under package:
 #
 #   winget:
-#     id           : package identifier (e.g. "Publisher.App")
-#     args         : extra CLI arguments
-#     scope        : machine | user
-#     locale       : installer locale (e.g. "pt-BR")
+#     id       : package identifier (e.g. "Publisher.App")
+#     args     : extra arguments appended to winget install/upgrade
+#     scope    : machine | user
+#     locale   : installer locale (e.g. "pt-BR")
+#     feed     : winget source to resolve against (e.g. msstore)
+#     override : string passed verbatim to the underlying installer
 #
 #   chocolatey:
-#     id             : package identifier (e.g. "googlechrome")
-#     args           : extra CLI arguments passed to choco
-#     package_params : parameters forwarded to the package script
+#     id              : package identifier (e.g. "googlechrome")
+#     args            : extra arguments appended to choco install/upgrade
+#     package_params  : parameters for the chocolatey package script
+#     install_args    : arguments for the native installer
+#     feed            : package feed to install from
+#     allow_downgrade : permit installing an older version
 #
 #   scoop:
-#     id     : package identifier (e.g. "vim")
-#     args   : extra CLI arguments
-#     bucket : bucket that provides the package (e.g. "extras")
+#     id     : app name (e.g. "vim")
+#     args   : extra arguments appended to scoop install/update
+#     bucket : bucket that provides the app (added automatically if missing)
+#     global : install for all users (requires an elevated shell)
+#     arch   : 64bit | 32bit | arm64
 #
 #   github:
-#     repo         : "owner/repo"
-#     asset_pattern: glob to force a specific asset (e.g. "*windows_amd64*.zip")
-#     run_installer: true → execute .exe/.msi instead of copying the binary
-#     install_dir  : override default binary dir
-#     args         : arguments passed to the installer (when run_installer: true)
-#     binary_name  : explicit binary name (e.g. "gh" for name: "GitHub CLI")
-#
-#   third_party:
-#     url          : direct download URL
-#     run_installer: true → execute the downloaded installer
-#     install_dir  : override default binary dir
-#     args         : arguments passed to the installer (when run_installer: true)
-#     checksum     : expected file checksum (e.g. "sha256:abc123...")
+#     id            : "owner/repo"
+#     args          : arguments for the DOWNLOADED installer, not for a package
+#                     manager — ignored unless run_installer is true
+#     asset_pattern : glob to force a specific asset (e.g. "*windows_amd64*.zip")
+#     run_installer : true → execute the .exe/.msi instead of copying the binary
+#     install_dir   : override the default binary dir
+#     binary_name   : explicit binary name (e.g. "gh" for name: "GitHub CLI")
+#     prerelease    : accept pre-release tags. GitHub's "latest release" endpoint
+#                     excludes them, so a repo that only publishes pre-releases
+#                     resolves to nothing without this.
 
-import:
-  - ./configs/browsers.yaml
-  - ./configs/development.yaml
+schema_version: 2
+
+settings:
+  install_dir: "${LOCALAPPDATA}\\apptide\\bin"
+  add_to_path: true
+  github_token: "${GITHUB_TOKEN}"
+
+applications:
+  - name: Chrome
+    description: Google Chrome web browser
+    category: Browsers
+    info_url: https://www.google.com/chrome/
+    source: winget
+    package:
+      winget:
+        id: Google.Chrome
+  - name: VS Code
+    description: The open-source AI code editor
+    category: Development
+    info_url: https://code.visualstudio.com/
+    source: winget
+    package:
+      winget:
+        id: Microsoft.VisualStudioCode
+  - name: ack
+    source: scoop
+    package:
+      scoop:
+        id: ack
+  - name: adb
+    source: scoop
+    package:
+      scoop:
+        id: adb
+  - name: bbk-cli
+    source: scoop
+    package:
+      scoop:
+        id: bbk-cli
+  - name: AutoIt.AutoIt
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: AutoIt.AutoIt
+  - name: bmatzelle.Gow
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: bmatzelle.Gow
+  - name: GoLang.Go
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: GoLang.Go
+  - name: Gyan.FFmpeg
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: Gyan.FFmpeg
+  - name: jqlang.jq
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: jqlang.jq
+  - name: LocalSend.LocalSend
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: LocalSend.LocalSend
+  - name: lycheeverse.lychee
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: lycheeverse.lychee
+  - name: Mozilla.Firefox
+    version: latest
+    source: winget
+    package:
+      winget:
+        id: Mozilla.Firefox
